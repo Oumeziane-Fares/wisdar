@@ -3,3 +3,7 @@ Flask-SQLAlchemy==3.1.1
 PyMySQL==1.1.1
 SQLAlchemy==2.0.40
 cryptography==36.0.2
+python-dotenv
+Flask-JWT-Extended
+Flask-Cors
+waitress

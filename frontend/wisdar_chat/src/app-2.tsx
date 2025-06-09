@@ -23,97 +23,80 @@ function App() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  const handleSelectConversation = useCallback(async (id: string | number) => {
-    setConversations(prev => {
-      const targetConversation = prev.find(c => c.id === id);
-      
-      if (!targetConversation) {
-        console.error("Selected conversation not found");
-        return prev;
-      }
+  // This function is now wrapped in `useCallback` to stabilize its identity,
+  // which helps prevent infinite loops in `useEffect`.
+  const handleSelectConversation = useCallback(async (id: string | number, currentConversations?: Conversation[]) => {
+    // Use the freshest conversation list available, or the current state
+    const convs = currentConversations || conversations;
+    const targetConversation = convs.find(c => c.id === id);
 
-      // 1. Set global model based on clicked conversation
-      setGlobalSelectedAiModel(targetConversation.aiModelId);
-
-      // 2. Mark clicked conversation as active
-      return prev.map(c => ({ ...c, active: c.id === id }));
-    });
-
-    // 3. Fetch messages after state update
-    if (id !== 'new') {
-      try {
-        const response = await authFetch(`${import.meta.env.VITE_API_URL}/conversations/${id}/messages`);
-        if (!response.ok) throw new Error('Failed to fetch messages.');
-        const messagesData: Message[] = await response.json();
-        
-        setConversations(prev => prev.map(c => 
-          c.id === id ? { ...c, messages: messagesData } : c
-        ));
-      } catch (error) {
-        console.error(`Error fetching messages for conversation ${id}:`, error);
-      }
+    if (!targetConversation) {
+      console.error("Selected conversation not found");
+      return;
     }
-  }, []);
 
+    // --- THIS IS THE KEY FIX ---
+    // 1. Set the global model state based on the conversation that was clicked.
+    // This ensures the model selector is correct for new conversations AND for the active one.
+    setGlobalSelectedAiModel(targetConversation.aiModelId);
+
+    // 2. Update the UI to show this conversation is active.
+    setConversations(prev => prev.map(c => ({ ...c, active: c.id === id })));
+    
+    // 3. Fetch its messages from the backend.
+    if (id !== 'new') {
+        try {
+          const response = await authFetch(`${import.meta.env.VITE_API_URL}/conversations/${id}/messages`);
+          if (!response.ok) throw new Error('Failed to fetch messages.');
+          const messagesData: Message[] = await response.json();
+          setConversations(prev => prev.map(c => 
+              c.id === id ? { ...c, messages: messagesData } : c
+          ));
+        } catch (error) {
+          console.error(`Error fetching messages for conversation ${id}:`, error);
+        }
+    }
+  }, [conversations]); // Dependency on `conversations` so it can find the target conversation
+
+  // Main useEffect to set up the user's session data when they log in
   useEffect(() => {
     const setupUserData = async () => {
       setIsLoading(true);
       if (isAuthenticated && user) {
+        // Set the list of AI models that are available to this specific user
         const userModels = (user.assigned_models || []).map(model => ({
           ...model,
           name: t(`model.${model.id.replace(/-/g, '')}`, model.display_name)
         }));
         setAvailableModels(userModels);
 
+        if (userModels.length > 0) {
+          setGlobalSelectedAiModel(userModels[0].id);
+        }
+        
+        // Fetch the user's list of conversations from the backend
         try {
           const response = await authFetch(`${import.meta.env.VITE_API_URL}/conversations`);
           if (!response.ok) throw new Error('Failed to fetch conversations');
-          const dataFromBackend = await response.json();
-          
-          // Map backend data to our frontend format
-          const data: Conversation[] = dataFromBackend.map((conv: any) => ({
-            id: conv.id,
-            title: conv.title,
-            created_at: conv.created_at,
-            aiModelId: conv.ai_model_id, // Ensure proper mapping from backend field
-            messages: [],
-          }));
+          const data: Conversation[] = await response.json();
           
           if (data.length > 0) {
             const conversationsWithState = data.map((conv, index) => ({
                 ...conv,
+                messages: [], 
                 active: index === 0
             }));
-            
             setConversations(conversationsWithState);
-            
-            // Set global model to the first conversation's model
-            setGlobalSelectedAiModel(conversationsWithState[0].aiModelId);
-            
-            // Load messages for first conversation
-            const firstId = conversationsWithState[0].id;
-            try {
-              const messagesResponse = await authFetch(`${import.meta.env.VITE_API_URL}/conversations/${firstId}/messages`);
-              if (!messagesResponse.ok) throw new Error('Failed to fetch messages');
-              const messagesData: Message[] = await messagesResponse.json();
-              
-              setConversations(prev => prev.map(c => 
-                c.id === firstId ? { ...c, messages: messagesData } : c
-              ));
-            } catch (error) {
-              console.error('Error loading first conversation messages:', error);
-            }
+            // After setting the conversation list, select the first one to load its data
+            await handleSelectConversation(conversationsWithState[0].id, conversationsWithState); 
           } else {
             setConversations([]);
-            // Set default model if available
-            if (userModels.length > 0) {
-              setGlobalSelectedAiModel(userModels[0].id);
-            }
           }
         } catch (error) {
           console.error('An error occurred while fetching conversations:', error);
         }
       } else {
+        // If user logs out, clear all application state
         setConversations([]);
         setAvailableModels([]);
         setGlobalSelectedAiModel('');
@@ -123,7 +106,7 @@ function App() {
     };
     
     setupUserData();
-  }, [isAuthenticated, user, i18n.language, t]);
+  }, [isAuthenticated, user, i18n.language, t, handleSelectConversation]);
 
   useEffect(() => {
     document.title = t('appTitle');
@@ -142,7 +125,7 @@ function App() {
 
     const newTempConvo: Conversation = {
       id: 'new',
-      title: t('conversationTitleFallback'),
+      title: t('conversationTitleFallback', 'New Conversation'),
       created_at: new Date().toISOString(),
       messages: [],
       active: true,
@@ -172,6 +155,7 @@ function App() {
 
     const isNewConversation = activeConversation.id === 'new';
     const endpoint = isNewConversation ? '/conversations/initiate' : '/messages';
+    
     const formData = new FormData();
     formData.append('content', content);
     if (isNewConversation) {
@@ -197,47 +181,32 @@ function App() {
         const { new_conversation, user_message, assistant_message } = await response.json();
 
         setConversations(prev => {
+            const targetId = isNewConversation ? 'new' : activeConversation.id;
             const newConvoId = isNewConversation ? new_conversation.id : activeConversation.id;
-            
+
             let updatedConversations = prev.filter(c => c.id !== 'new');
             
             return updatedConversations.map(c => {
                 if (c.id === newConvoId) {
                     const newMessages = c.messages.filter(m => m.id !== optimisticMessage.id);
                     newMessages.push(user_message, assistant_message);
-                    
-                    // Map backend conversation to our format
-                    const mappedConversation = isNewConversation ? {
-                      id: new_conversation.id,
-                      title: new_conversation.title,
-                      created_at: new_conversation.created_at,
-                      aiModelId: new_conversation.ai_model_id
-                    } : {};
-                    
-                    return { 
-                      ...c, 
-                      ...mappedConversation, 
-                      messages: newMessages, 
-                      active: true 
-                    };
+                    return { ...c, ...new_conversation, messages: newMessages, active: true };
                 }
                 return { ...c, active: false };
             });
         });
     } catch (error) {
-        console.error("Error sending message:", error);
-        setConversations(prev => prev.map(c => 
-            c.id === activeConversation.id ? { ...c, messages: c.messages.filter(m => m.id !== optimisticMessage.id) } : c
-        ));
+        console.error("Error sending message or initiating conversation:", error);
+        setConversations(prev => prev.map(c => ({
+            ...c,
+            messages: c.messages.filter(m => m.id !== optimisticMessage.id)
+        })));
     }
   };
 
   const handleAiModelChange = (newModelId: string) => {
-    setGlobalSelectedAiModel(newModelId);
-    
-    // Update model for active conversation if it's new or empty
-    if (activeConversation && 
-        (activeConversation.id === 'new' || activeConversation.messages.length === 0)) {
+    setGlobalSelectedAiModel(newModelId); 
+    if (activeConversation && activeConversation.messages.length === 0) {
       setConversations(prev => 
         prev.map(c => 
           c.id === activeConversation.id ? { ...c, aiModelId: newModelId } : c
