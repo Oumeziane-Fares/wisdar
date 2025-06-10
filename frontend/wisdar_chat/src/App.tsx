@@ -70,12 +70,11 @@ function App() {
           if (!response.ok) throw new Error('Failed to fetch conversations');
           const dataFromBackend = await response.json();
           
-          // Map backend data to our frontend format
           const data: Conversation[] = dataFromBackend.map((conv: any) => ({
             id: conv.id,
             title: conv.title,
             created_at: conv.created_at,
-            aiModelId: conv.ai_model_id, // Ensure proper mapping from backend field
+            aiModelId: conv.ai_model_id,
             messages: [],
           }));
           
@@ -86,11 +85,8 @@ function App() {
             }));
             
             setConversations(conversationsWithState);
-            
-            // Set global model to the first conversation's model
             setGlobalSelectedAiModel(conversationsWithState[0].aiModelId);
             
-            // Load messages for first conversation
             const firstId = conversationsWithState[0].id;
             try {
               const messagesResponse = await authFetch(`${import.meta.env.VITE_API_URL}/conversations/${firstId}/messages`);
@@ -105,7 +101,6 @@ function App() {
             }
           } else {
             setConversations([]);
-            // Set default model if available
             if (userModels.length > 0) {
               setGlobalSelectedAiModel(userModels[0].id);
             }
@@ -196,36 +191,44 @@ function App() {
 
         const { new_conversation, user_message, assistant_message } = await response.json();
 
-        setConversations(prev => {
-            const newConvoId = isNewConversation ? new_conversation.id : activeConversation.id;
-            
-            let updatedConversations = prev.filter(c => c.id !== 'new');
-            
-            return updatedConversations.map(c => {
-                if (c.id === newConvoId) {
-                    const newMessages = c.messages.filter(m => m.id !== optimisticMessage.id);
-                    newMessages.push(user_message, assistant_message);
-                    
-                    // Map backend conversation to our format
-                    const mappedConversation = isNewConversation ? {
-                      id: new_conversation.id,
-                      title: new_conversation.title,
-                      created_at: new_conversation.created_at,
-                      aiModelId: new_conversation.ai_model_id
-                    } : {};
-                    
-                    return { 
-                      ...c, 
-                      ...mappedConversation, 
-                      messages: newMessages, 
-                      active: true 
-                    };
-                }
-                return { ...c, active: false };
+        // --- MODIFIED LOGIC TO FIX THE BUG ---
+        if (isNewConversation) {
+            // This case handles creating a brand new conversation
+            const finalNewConversation: Conversation = {
+                id: new_conversation.id,
+                title: new_conversation.title,
+                created_at: new_conversation.created_at,
+                aiModelId: new_conversation.ai_model_id,
+                messages: [user_message, assistant_message],
+                active: true, // Make it active immediately
+            };
+
+            setConversations(prev => {
+                // Filter out the temporary 'new' convo and mark all others as inactive
+                const otherConversations = prev
+                    .filter(c => c.id !== 'new')
+                    .map(c => ({ ...c, active: false }));
+                
+                // Add the new, real conversation to the top of the list
+                return [finalNewConversation, ...otherConversations];
             });
-        });
+        } else {
+            // This case handles adding messages to an existing conversation
+            setConversations(prev => prev.map(c => {
+                if (c.id === activeConversation.id) {
+                    // Replace the optimistic message with the real ones from the server
+                    const updatedMessages = c.messages.filter(m => m.id !== optimisticMessage.id);
+                    updatedMessages.push(user_message, assistant_message);
+                    return { ...c, messages: updatedMessages };
+                }
+                return c; // Return other conversations unchanged
+            }));
+        }
+        // --- END OF MODIFIED LOGIC ---
+
     } catch (error) {
         console.error("Error sending message:", error);
+        // On error, remove the optimistic message
         setConversations(prev => prev.map(c => 
             c.id === activeConversation.id ? { ...c, messages: c.messages.filter(m => m.id !== optimisticMessage.id) } : c
         ));
@@ -235,7 +238,6 @@ function App() {
   const handleAiModelChange = (newModelId: string) => {
     setGlobalSelectedAiModel(newModelId);
     
-    // Update model for active conversation if it's new or empty
     if (activeConversation && 
         (activeConversation.id === 'new' || activeConversation.messages.length === 0)) {
       setConversations(prev => 

@@ -75,6 +75,10 @@ class Attachment(db.Model):
     storage_url = Column(Text, nullable=False)
     transcription = Column(Text, nullable=True)
     
+    # --- NEW FIELD ---
+    # This will store the job ID from Speechmatics so we can link the webhook notification.
+    speechmatics_job_id = Column(String(100), nullable=True, index=True)
+
     # Relationship back to the Message model
     message = relationship('Message', back_populates='attachment')
 
@@ -82,10 +86,16 @@ class Attachment(db.Model):
         return f"<Attachment for Message {self.message_id}: {self.file_name}>"
     
     def to_dict(self, host_url=None):
-        # If a host_url is provided, construct the full URL for the frontend
-        full_storage_url = f"{host_url.strip('/')}{self.storage_url}" if host_url else self.storage_url
+        # --- MODIFIED FOR ROBUSTNESS ---
+        # This now safely handles cases where storage_url might be None or empty
+        full_storage_url = self.storage_url
+        if host_url and self.storage_url and self.storage_url.startswith('/api'):
+            full_storage_url = f"{host_url.strip('/')}{self.storage_url}"
+        
         return {
             "fileName": self.file_name,
             "fileType": self.file_type,
-            "fileURL": full_storage_url
+            "fileURL": full_storage_url,
+            "transcription": self.transcription,
+            "speechmatics_job_id": self.speechmatics_job_id
         }

@@ -7,3 +7,6 @@ python-dotenv
 Flask-JWT-Extended
 Flask-Cors
 waitress
+requests
+librosa
+soundfile

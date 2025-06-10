@@ -1,4 +1,10 @@
-// This function will be our new, smarter fetch function for authenticated requests.
+/**
+ * This is your existing, robust fetch function. It handles adding the
+ * JWT token to requests and automatically logs the user out on a 401 error.
+ * @param url The full URL to fetch from.
+ * @param options The standard fetch options (method, body, etc.).
+ * @returns A Promise that resolves to the raw Response object.
+ */
 export async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
     const token = localStorage.getItem('authToken');
 
@@ -36,3 +42,24 @@ export async function authFetch(url: string, options: RequestInit = {}): Promise
 
     return response;
 }
+
+
+// --- NEW FUNCTION ---
+/**
+ * Fetches a protected audio file using your existing authFetch and returns it as a Blob.
+ * A Blob is a representation of raw file data.
+ * @param fileUrl The full URL of the audio file to fetch.
+ * @returns A Promise that resolves to a Blob object.
+ */
+export const fetchAudioBlob = async (fileUrl: string): Promise<Blob> => {
+    // We reuse your existing authFetch function to automatically handle authentication.
+    const response = await authFetch(fileUrl); // This performs a simple GET request.
+
+    if (!response.ok) {
+        // Your authFetch handles 401 errors. This will catch other errors like 404 (Not Found).
+        throw new Error(`Failed to fetch audio file: ${response.statusText}`);
+    }
+
+    // The response body is the raw audio data, which we return as a Blob.
+    return response.blob();
+};
