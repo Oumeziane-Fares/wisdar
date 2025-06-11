@@ -84,7 +84,7 @@ jwt = JWTManager(app)
 # Added a trailing slash to avoid redirects that break CORS preflight.
 app.register_blueprint(auth_bp, url_prefix='/api/')
 app.register_blueprint(chat_bp, url_prefix='/api/')
-app.register_blueprint(models_bp, url_prefix='/api/models', strict_slashes=False)
+app.register_blueprint(models_bp, url_prefix='/api/models/', strict_slashes=False)
 
 # --- Create Database Tables and Seed Initial Data ---
 with app.app_context():

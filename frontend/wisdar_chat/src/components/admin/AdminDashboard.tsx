@@ -6,7 +6,7 @@ import { AiModel } from '../../types';
 import { useToast } from '@/hooks/use-toast';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import * as JSEncrypt from 'jsencrypt'; 
+import forge from 'node-forge';
 
 type AdminTab = 'dashboard' | 'users' | 'conversations' | 'usage' | 'settings' | 'apiKeys';
 
@@ -74,20 +74,34 @@ const AdminDashboard: React.FC = () => {
       return;
     }
 
-    // --- MODIFIED: Set hashing algorithm to SHA-256 ---
-    const encrypt = new JSEncrypt.JSEncrypt({ default_key_size: '2048' });
-    encrypt.setPublicKey(publicKey);
-    // Note: JSEncrypt uses OAEP padding by default. To align with a specific backend
-    // that might require a specific hash for OAEP, you'd typically need to ensure
-    // the backend matches the library's defaults (often SHA-1) or find a library
-    // that allows specifying the OAEP hash, which JSEncrypt v3+ does.
-    // Assuming the backend is aligned, the following is correct.
-    const encryptedApiKey = encrypt.encrypt(plainTextApiKey);
-    // ----------------------------------------------------
+    let encryptedApiKey: string;
 
+    try {
+      // --- 2. NEW ENCRYPTION LOGIC USING NODE-FORGE ---
+      
+      // Convert the PEM public key string into a forge public key object
+      const forgePublicKey = forge.pki.publicKeyFromPem(publicKey);
+
+      // Encrypt the API key using RSA-OAEP and explicitly specify SHA-256
+      const encryptedBytes = forgePublicKey.encrypt(plainTextApiKey, 'RSA-OAEP', {
+        md: forge.md.sha256.create(),
+        mgf1: {
+          md: forge.md.sha256.create(),
+        },
+      });
+
+      // Encode the encrypted bytes into Base64 to send as a JSON string
+      encryptedApiKey = forge.util.encode64(encryptedBytes);
+      
+    } catch (e) {
+      console.error("Encryption failed with node-forge:", e);
+      toast({ title: t('error', 'Error'), description: "Client-side encryption failed.", variant: 'destructive' });
+      return;
+    }
+    
     if (!encryptedApiKey) {
-        toast({ title: t('error', 'Error'), description: "Encryption failed. Please try again.", variant: 'destructive' });
-        return;
+      toast({ title: t('error', 'Error'), description: "Encryption resulted in an empty key.", variant: 'destructive' });
+      return;
     }
 
     try {
