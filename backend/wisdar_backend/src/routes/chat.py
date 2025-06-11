@@ -275,6 +275,7 @@ def speechmatics_webhook():
         try:
             response = requests.get(transcript_url, headers=headers)
             response.raise_for_status()
+            response.encoding = 'utf-8'
             transcription = response.text
             
             attachment.transcription = transcription

@@ -8,7 +8,7 @@ import os
 # 1. Start ngrok first (e.g., ngrok http 5000)
 # 2. Copy the public URL ngrok gives you (e.g., "your-random-string.ngrok.io")
 # 3. Paste it here. This tells Flask its public address.
-app.config['SERVER_NAME'] = '5753-154-249-221-219.ngrok-free.app'
+app.config['SERVER_NAME'] = '6ef4-105-110-237-176.ngrok-free.app'
 # ------------------------------------
 
 

@@ -8,7 +8,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from dotenv import load_dotenv
 load_dotenv() # Load environment variables FIRST
 
-# The pydub configuration is no longer needed.
 # We will now use librosa and soundfile, which do not require this setup.
 
 from flask import Flask, send_from_directory
@@ -20,6 +19,8 @@ from src.models.ai_model import AIModel
 from src.models.chat import Conversation, Message, Attachment
 from src.routes.user import auth_bp
 from src.routes.chat import chat_bp
+# --- 1. IMPORT THE NEW BLUEPRINT ---
+from src.routes.models import models_bp
 
 app = Flask(__name__, static_folder=os.path.join(os.path.dirname(__file__), 'static'))
 
@@ -29,8 +30,21 @@ CORS(app, origins=["http://localhost:5173"])
 # --- App Configuration ---
 app.config['SECRET_KEY'] = 'asdf#FGSgvasgf$5$WGT'
 app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'your-super-secret-jwt-key')
-app.config['SQLALCHEMY_DATABASE_URI'] = f"mysql+pymysql://{os.getenv('DB_USERNAME')}:{os.getenv('DB_PASSWORD')}@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}"
+
+# --- MODIFIED: Added charset=utf8mb4 to the connection string ---
+db_uri = (
+    f"mysql+pymysql://{os.getenv('DB_USERNAME')}:{os.getenv('DB_PASSWORD')}"
+    f"@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}"
+    f"?charset=utf8mb4"
+)
+app.config['SQLALCHEMY_DATABASE_URI'] = db_uri
+# -------------------------------------------------------------------
+
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# --- NEW: Ensure API responses are sent as UTF-8 ---
+app.config['JSON_AS_ASCII'] = False
+# ---------------------------------------------------
 
 # Define the path for the upload folder
 app.config['UPLOAD_FOLDER'] = os.path.join(app.static_folder, 'uploads')
@@ -38,6 +52,20 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True) # Ensure the folder exis
 
 # This will now correctly load your Speechmatics key
 app.config["SPEECHMATICS_API_KEY"] = os.getenv("SPEECHMATICS_API_KEY")
+
+
+# --- MODIFIED: More Robust RSA Private Key Loading ---
+rsa_key_from_env = os.getenv("RSA_PRIVATE_KEY")
+if not rsa_key_from_env:
+    raise ValueError("RSA_PRIVATE_KEY is not set in the .env file. Please generate one.")
+
+# 1. Strip leading/trailing whitespace and quotes that might come from the .env file
+cleaned_key = rsa_key_from_env.strip().strip('"').strip("'")
+# 2. Replace the literal '\\n' characters from the .env file with actual newlines
+formatted_key = cleaned_key.replace('\\n', '\n')
+app.config["RSA_PRIVATE_KEY"] = formatted_key
+# ----------------------------------------------------
+
 
 # --- Configure Logging ---
 if not app.debug:
@@ -52,9 +80,11 @@ if not app.debug:
 db.init_app(app)
 jwt = JWTManager(app)
 
-# --- Register Blueprints ---
-app.register_blueprint(auth_bp, url_prefix='/api')
-app.register_blueprint(chat_bp, url_prefix='/api')
+# --- CORRECTED URL PREFIXES ---
+# Added a trailing slash to avoid redirects that break CORS preflight.
+app.register_blueprint(auth_bp, url_prefix='/api/')
+app.register_blueprint(chat_bp, url_prefix='/api/')
+app.register_blueprint(models_bp, url_prefix='/api/models', strict_slashes=False)
 
 # --- Create Database Tables and Seed Initial Data ---
 with app.app_context():
