@@ -13,7 +13,9 @@ export default defineConfig({
   server: { // Add or modify the server configuration
     host: true, // Optional: This makes the server accessible on your local network
     allowedHosts: [
-      '7f1d-105-110-171-155.ngrok-free.app', // Your specific ngrok URL
+      'eager-ducks-train.loca.lt',
+      'salty-states-beam.loca.lt'
+       // Your specific ngrok URL
       // You can add more allowed hosts here if needed
     ],
     // If you have an HMR (Hot Module Replacement) configuration, ensure it's compatible

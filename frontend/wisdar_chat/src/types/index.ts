@@ -20,6 +20,10 @@ export interface Message {
   role: MessageRole;
   timestamp: string;
   attachment?: Attachment; 
+  // --- THIS IS THE CRITICAL FIX ---
+  // Add the missing property so TypeScript knows it exists on a message object.
+  conversation_id?: string | number; 
+  // --------------------------------
 }
 
 export interface Conversation {
@@ -38,4 +42,5 @@ export interface User {
   email: string;
   role: 'user' | 'admin';
   assigned_models: AiModel[]; // This array comes from the backend
+
 }

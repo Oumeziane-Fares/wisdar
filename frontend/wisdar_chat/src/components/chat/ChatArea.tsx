@@ -1,268 +1,229 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Paperclip, Send, Mic, StopCircle } from 'lucide-react';
-import { Textarea } from '../ui/textarea';
-import { Button } from '../ui/button';
-import { useToast } from '../../hooks/use-toast';
-import { Conversation, Message, AiModel } from '../../types';
-import { authFetch } from '../../lib/api';
 import ChatMessage from './ChatMessage';
+import { LucideSend, LucidePaperclip, LucideMic, LucideStopCircle } from 'lucide-react';
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AiModel, Message } from '../../types'; // Using shared types
 
 interface ChatAreaProps {
-  activeConversation: Conversation | null;
-  // This function is crucial to let the parent (App.tsx) know a new conversation has been created
-  onNewConversation: (newConversation: Conversation, userMessage: Message, assistantMessage?: Message) => void;
-  // Props for model selection when starting a new chat
+  conversationTitle: string;
+  messages: Message[];
+  onSendMessage: (content: string, attachments?: File[]) => void;
   availableModels: AiModel[];
-  selectedModel: string;
+  selectedModel: string; 
   onSelectModel: (modelId: string) => void;
 }
 
-const ChatArea: React.FC<ChatAreaProps> = ({ 
-    activeConversation, 
-    onNewConversation,
-    availableModels,
-    selectedModel,
-    onSelectModel
+const ChatArea: React.FC<ChatAreaProps> = ({
+  conversationTitle,
+  messages,
+  onSendMessage,
+  availableModels,
+  selectedModel,
+  onSelectModel
 }) => {
-  const { t } = useTranslation();
-  const { toast } = useToast();
-  const [inputMessage, setInputMessage] = useState('');
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const { t } = useTranslation(); 
+  const [inputValue, setInputValue] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null); 
+  const messagesEndRef = useRef<HTMLDivElement>(null); 
   const [isRecording, setIsRecording] = useState(false);
   
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  // Use a ref to store audio chunks to avoid state closure issues.
   const audioChunksRef = useRef<Blob[]>([]);
-
-  // Effect to fetch initial messages for a conversation
-  useEffect(() => {
-    const fetchMessages = async () => {
-      if (activeConversation) {
-        setIsLoading(true);
-        try {
-          const fetchedMessages = await authFetch(`${import.meta.env.VITE_API_URL}/conversations/${activeConversation.id}/messages`);
-          setMessages(fetchedMessages);
-        } catch (error) {
-          toast({ title: t('error'), description: t('errors.fetchMessages'), variant: 'destructive' });
-        } finally {
-          setIsLoading(false);
-        }
-      } else {
-        setMessages([]);
-      }
-    };
-    fetchMessages();
-  }, [activeConversation, t, toast]);
-
-  // Effect to handle real-time updates via SSE
-  useEffect(() => {
-    if (!activeConversation) return;
-
-    const token = localStorage.getItem('authToken');
-    if (!token) return;
-
-    const eventSource = new EventSource(
-      `${import.meta.env.VITE_API_URL}/stream/${activeConversation.id}?token=${token}`
-    );
-
-    eventSource.onmessage = (event) => {
-      const newMessage = JSON.parse(event.data);
-      setMessages(prevMessages => {
-        const existingMessageIndex = prevMessages.findIndex(msg => msg.id === newMessage.id);
-        if (existingMessageIndex > -1) {
-          const updatedMessages = [...prevMessages];
-          updatedMessages[existingMessageIndex] = newMessage;
-          return updatedMessages;
-        } else {
-          return [...prevMessages, newMessage];
-        }
-      });
-    };
-
-    eventSource.onerror = (err) => {
-      console.error("EventSource failed:", err);
-      eventSource.close();
-    };
-
-    return () => {
-      eventSource.close();
-    };
-  }, [activeConversation]);
+  
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioStreamRef = useRef<MediaStream | null>(null); 
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const handleSendMessage = async (content: string, file?: File) => {
-      if (!content.trim() && !file) return;
-
-      setIsLoading(true);
-      const formData = new FormData();
-      formData.append('content', content);
-      if (file) {
-          formData.append('attachment', file);
+  // Cleanup function to stop streams and recorders on component unmount
+  useEffect(() => {
+    return () => {
+      if (audioStreamRef.current) {
+        audioStreamRef.current.getTracks().forEach(track => track.stop());
       }
-
-      try {
-          if (activeConversation) {
-              formData.append('conversation_id', activeConversation.id.toString());
-              const response = await authFetch(`${import.meta.env.VITE_API_URL}/messages`, {
-                  method: 'POST',
-                  body: formData,
-              });
-              
-              const { user_message, assistant_message } = response;
-              const newMessages: Message[] = [user_message];
-              if (assistant_message) {
-                  newMessages.push(assistant_message);
-              }
-              setMessages(prev => [...prev, ...newMessages]);
-
-          } else {
-              if (!selectedModel) {
-                  toast({ title: t('error'), description: "Please select an AI model to start the conversation." });
-                  setIsLoading(false);
-                  return;
-              }
-              formData.append('ai_model_id', selectedModel);
-              const response = await authFetch(`${import.meta.env.VITE_API_URL}/conversations/initiate`, {
-                  method: 'POST',
-                  body: formData,
-              });
-              
-              const { new_conversation, user_message, assistant_message } = response;
-              onNewConversation(new_conversation, user_message, assistant_message);
-              const newMessages: Message[] = [user_message];
-              if (assistant_message) {
-                  newMessages.push(assistant_message);
-              }
-              setMessages(newMessages);
-          }
-          
-          setInputMessage('');
-          if (fileInputRef.current) {
-              fileInputRef.current.value = '';
-          }
-      } catch (error) {
-          toast({ title: t('error'), description: t('errors.sendMessage') });
-      } finally {
-          setIsLoading(false);
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
       }
+    };
+  }, []);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (inputValue.trim() && !isRecording) {
+      onSendMessage(inputValue);
+      setInputValue('');
+    }
   };
-  
-  const handleSubmitForm = (e: React.FormEvent) => {
-      e.preventDefault();
-      handleSendMessage(inputMessage);
+
+  const handleAttachmentClick = () => {
+    if (isRecording) return; 
+    fileInputRef.current?.click();
   };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      handleSendMessage(t('fileAttachedMessage', { fileName: file.name }), file);
+    const files = event.target.files;
+    if (files && files.length > 0) {
+      const fileArray = Array.from(files);
+      onSendMessage(t('fileAttachedMessage', { fileName: fileArray.map(f => f.name).join(', ') }), fileArray);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ""; 
+      }
     }
   };
 
   const startRecording = async () => {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      console.error(t('audioRecordingNotSupportedError'));
+      return;
+    }
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        mediaRecorderRef.current = new MediaRecorder(stream);
-        audioChunksRef.current = [];
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioStreamRef.current = stream;
 
-        mediaRecorderRef.current.ondataavailable = (event) => {
-            if(event.data.size > 0) audioChunksRef.current.push(event.data);
-        };
+      const options = { mimeType: 'audio/webm;codecs=opus' };
+      mediaRecorderRef.current = MediaRecorder.isTypeSupported(options.mimeType)
+        ? new MediaRecorder(stream, options)
+        : new MediaRecorder(stream);
+      
+      const recorder = mediaRecorderRef.current;
+      
+      // Reset the ref's current value before starting.
+      audioChunksRef.current = []; 
 
-        mediaRecorderRef.current.onstop = () => {
-            const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-            const audioFile = new File([audioBlob], `recording_${Date.now()}.webm`, { type: 'audio/webm' });
-            handleSendMessage(t('voiceRecordingCompleteMessage', { fileName: audioFile.name }), audioFile);
-            stream.getTracks().forEach(track => track.stop());
-        };
+      recorder.ondataavailable = (event) => {
+        if(event.data.size > 0) {
+          // Push audio chunks directly into the ref.
+          audioChunksRef.current.push(event.data);
+        }
+      };
 
-        mediaRecorderRef.current.start();
-        setIsRecording(true);
+      recorder.onstop = () => {
+        // Create the final audio Blob from the ref, which now contains all the data.
+        const audioBlob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+        const fileExtension = recorder.mimeType?.split('/')[1]?.split(';')[0] || 'webm';
+        const audioFile = new File([audioBlob], `recorded_voice_${Date.now()}.${fileExtension}`, { type: audioBlob.type });
+        
+        onSendMessage(t('voiceRecordingCompleteMessage', { fileName: audioFile.name }), [audioFile]);
+        
+        setIsRecording(false);
+        if (audioStreamRef.current) {
+          audioStreamRef.current.getTracks().forEach(track => track.stop());
+          audioStreamRef.current = null;
+        }
+      };
+
+      recorder.start();
+      setIsRecording(true);
     } catch (err) {
-        console.error("Mic access error:", err);
-        toast({ title: t('error'), description: "Microphone access was denied." });
+      console.error("Error accessing microphone:", err);
     }
   };
 
   const stopRecording = () => {
-    if (mediaRecorderRef.current?.state === "recording") {
-        mediaRecorderRef.current.stop();
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+      mediaRecorderRef.current.stop();
     }
-    setIsRecording(false);
   };
 
-  const isModelSelectorDisabled = !!activeConversation;
+  const handleRecordVoiceClick = () => {
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  };
+
+  const isModelSelectorDisabled = messages.length > 0;
+  const isInputDisabled = !selectedModel;
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-white dark:bg-gray-800 rounded-r-lg">
-      <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
-        <h2 className="font-semibold text-lg truncate" title={activeConversation?.title || "New Conversation"}>
-            {activeConversation?.title || t('New Conversation')}
+    <div className="flex flex-col h-full bg-white dark:bg-gray-900 text-foreground">
+      <div className="py-3 px-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between gap-4">
+        <h2 className="text-lg font-medium text-gray-800 dark:text-gray-200 truncate" title={conversationTitle}>
+          {conversationTitle}
         </h2>
-        <div className="min-w-[180px]">
-            <Select value={activeConversation?.ai_model_id || selectedModel} onValueChange={onSelectModel} disabled={isModelSelectorDisabled}>
-                <SelectTrigger className="h-9">
-                    <SelectValue placeholder={t('selectAiModelPlaceholder')} />
-                </SelectTrigger>
-                <SelectContent>
-                    {availableModels.map(model => (
-                        <SelectItem key={model.id} value={model.id}>{model.display_name}</SelectItem>
-                    ))}
-                </SelectContent>
-            </Select>
+        <div className="min-w-[180px] sm:min-w-[200px]">
+          <Select value={selectedModel} onValueChange={onSelectModel} disabled={isModelSelectorDisabled}>
+            <SelectTrigger className={`h-9 text-xs sm:text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-gray-50 ${isInputDisabled && !isModelSelectorDisabled ? 'border-red-500' : ''}`}>
+              <SelectValue placeholder={t('selectAiModelPlaceholder')} />
+            </SelectTrigger>
+            <SelectContent className="dark:bg-gray-800">
+              {availableModels.map(model => (
+                <SelectItem key={model.id} value={model.id} className="text-xs sm:text-sm dark:text-gray-50 dark:focus:bg-gray-700">
+                  {model.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
-
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {isLoading && messages.length === 0 ? (
-          <p>{t('chat.loadingMessages')}</p>
-        ) : messages.length === 0 && !activeConversation ? (
-            <div className="flex-1 flex items-center justify-center text-center text-gray-500">
-                <div>
-                    <img src="/images/logo-wisdar-notext.png" alt="Logo" className="mx-auto h-24 w-24 mb-4 opacity-30" />
-                    <p>{t('chat.selectModelAndStart')}</p>
-                </div>
-            </div>
-        ) : (
-          messages.map((msg) => (
-            <ChatMessage key={msg.id} message={msg} />
-          ))
-        )}
-        <div ref={messagesEndRef} />
-      </div>
-
-      <div className="p-4 border-t border-gray-200 dark:border-gray-700">
-        <form onSubmit={handleSubmitForm} className="relative flex items-center gap-2">
-            <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="audio/*" />
-            <Button type="button" variant="ghost" size="icon" onClick={() => fileInputRef.current?.click()} disabled={isLoading || isRecording}>
-                <Paperclip className="h-5 w-5" />
-            </Button>
-            <Button type="button" variant="ghost" size="icon" onClick={isRecording ? stopRecording : startRecording} disabled={isLoading}>
-                {isRecording ? <StopCircle className="h-5 w-5 text-red-500 animate-pulse" /> : <Mic className="h-5 w-5" />}
-            </Button>
-            <Textarea
-                value={inputMessage}
-                onChange={(e) => setInputMessage(e.target.value)}
-                onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSubmitForm(e);
-                }
-                }}
-                placeholder={t('chat.typeMessage')}
-                className="flex-1"
-                disabled={isLoading || isRecording}
+      
+      <ScrollArea className="flex-1 p-4 space-y-4">
+        {messages.map((message) => (
+            <ChatMessage
+              key={String(message.id)}
+              content={message.content}
+              role={message.role}
+              timestamp={message.timestamp}
+              attachment={message.attachment}
             />
-            <Button type="submit" size="icon" disabled={isLoading || isRecording || !inputMessage.trim()}>
-                <Send className="h-5 w-5" />
-            </Button>
-        </form>
+        ))}
+        <div ref={messagesEndRef} />
+      </ScrollArea>
+      
+      <div className="border-t border-gray-200 dark:border-gray-700 p-2 sm:p-4">
+        <div className="flex items-center gap-1 sm:gap-2">
+          <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" multiple accept="audio/*"/>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={handleRecordVoiceClick}
+            disabled={isInputDisabled}
+            className={`p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 ${isRecording ? 'text-red-500 animate-pulse' : 'text-gray-500'} disabled:opacity-50 disabled:cursor-not-allowed`}
+            aria-label={isRecording ? t('stopRecordingAriaLabel') : t('recordVoiceAriaLabel')}
+          >
+            {isRecording ? <LucideStopCircle size={20} /> : <LucideMic size={20} />}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost" 
+            size="icon"    
+            onClick={handleAttachmentClick}
+            disabled={isInputDisabled || isRecording} 
+            className="p-2 text-gray-500 hover:text-[#6B5CA5] rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
+            aria-label={t('attachVoiceNoteAriaLabel')} 
+          >
+            <LucidePaperclip size={20} />
+          </Button>
+          {isRecording ? (
+            <div className="recording-indicator" aria-label={t('voiceRecordingInProgress')}>
+              <span className="recording-animation-bar"></span><span className="recording-animation-bar"></span>
+              <span className="recording-animation-bar"></span><span className="recording-animation-bar"></span>
+              <span className="recording-animation-bar"></span>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="flex-1 flex items-center gap-1 sm:gap-2">
+              <Input
+                type="text"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                placeholder={isInputDisabled ? t('selectModelToStart') : t('chatInputPlaceholder')}
+                disabled={isInputDisabled}
+                className="flex-1 h-10 p-3 rounded-lg border disabled:opacity-50"
+              />
+              <Button type="submit" disabled={!inputValue.trim() || isInputDisabled} className="p-2 h-10 w-10 flex items-center justify-center rounded-lg bg-[#6B5CA5] text-white disabled:opacity-50">
+                <LucideSend size={20} />
+              </Button>
+            </form>
+          )}
+        </div>
       </div>
     </div>
   );

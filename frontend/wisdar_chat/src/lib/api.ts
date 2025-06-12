@@ -1,7 +1,8 @@
 /**
  * This is your existing, robust fetch function. It handles adding the
  * JWT token to requests and automatically logs the user out on a 401 error.
- * @param url The full URL to fetch from.
+ * It now also intelligently handles both relative API paths and full URLs.
+ * @param url The relative path (e.g., '/api/login') or full URL to fetch from.
  * @param options The standard fetch options (method, body, etc.).
  * @returns A Promise that resolves to the raw Response object.
  */
@@ -20,8 +21,23 @@ export async function authFetch(url: string, options: RequestInit = {}): Promise
         headers.set('Content-Type', 'application/json');
     }
 
-    // Perform the fetch call with the updated options
-    const response = await fetch(url, {
+    // --- THIS IS THE INTEGRATED FIX ---
+    // Create a variable for the final, complete URL.
+    let finalUrl: string;
+
+    // Check if the provided URL is already a full, absolute URL.
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+        // If it is, use it directly. This is for fetching audio files.
+        finalUrl = url;
+    } else {
+        // If it's a relative path (like '/api/login'), then prepend the base API URL.
+        const baseUrl = import.meta.env.VITE_API_URL || '';
+        finalUrl = `${baseUrl}${url}`;
+    }
+    // ------------------------------------
+
+    // Perform the fetch call with the constructed URL and updated options
+    const response = await fetch(finalUrl, {
         ...options,
         headers,
     });
@@ -33,10 +49,9 @@ export async function authFetch(url: string, options: RequestInit = {}): Promise
         localStorage.removeItem('currentUser');
         
         // Force a page reload to redirect to the AuthPage.
-        // The AuthContext will see that there's no user and show the login form.
         window.location.reload();
 
-        // Throw an error to stop further processing in the original function call
+        // Throw an error to stop further processing
         throw new Error("User is not authenticated.");
     }
 
@@ -44,7 +59,7 @@ export async function authFetch(url: string, options: RequestInit = {}): Promise
 }
 
 
-// --- NEW FUNCTION ---
+// --- THIS FUNCTION NOW WORKS CORRECTLY ---
 /**
  * Fetches a protected audio file using your existing authFetch and returns it as a Blob.
  * A Blob is a representation of raw file data.
@@ -52,11 +67,11 @@ export async function authFetch(url: string, options: RequestInit = {}): Promise
  * @returns A Promise that resolves to a Blob object.
  */
 export const fetchAudioBlob = async (fileUrl: string): Promise<Blob> => {
-    // We reuse your existing authFetch function to automatically handle authentication.
+    // We reuse authFetch. Because fileUrl is a full URL, authFetch will use it directly.
     const response = await authFetch(fileUrl); // This performs a simple GET request.
 
     if (!response.ok) {
-        // Your authFetch handles 401 errors. This will catch other errors like 404 (Not Found).
+        // authFetch handles 401 errors. This will catch other errors like 404 (Not Found).
         throw new Error(`Failed to fetch audio file: ${response.statusText}`);
     }
 

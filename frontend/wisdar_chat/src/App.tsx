@@ -5,17 +5,17 @@ import ChatSidebar from './components/chat/ChatSidebar';
 import ChatArea from './components/chat/ChatArea';
 import SettingsPanel from './components/settings/SettingsPanel';
 import AdminDashboard from './components/admin/AdminDashboard';
-import AuthPage from './pages/AuthPage'; 
-import { useAuth } from './contexts/AuthContext'; 
+import AuthPage from './pages/AuthPage';
+import { useAuth } from './contexts/AuthContext';
 import { authFetch } from './lib/api';
-import { AiModel, Conversation, Message, User } from './types'; 
+import { AiModel, Conversation, Message, User } from './types';
 import './App.css';
 
 type View = 'chat' | 'settings' | 'admin';
 
 function App() {
   const { t, i18n } = useTranslation();
-  const { isAuthenticated, user } = useAuth(); 
+  const { isAuthenticated, user } = useAuth();
 
   const [availableModels, setAvailableModels] = useState<AiModel[]>([]);
   const [globalSelectedAiModel, setGlobalSelectedAiModel] = useState<string>('');
@@ -23,26 +23,21 @@ function App() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
+  // This function remains largely the same, it's for loading historical data.
   const handleSelectConversation = useCallback(async (id: string | number) => {
     setConversations(prev => {
       const targetConversation = prev.find(c => c.id === id);
-      
       if (!targetConversation) {
         console.error("Selected conversation not found");
         return prev;
       }
-
-      // 1. Set global model based on clicked conversation
       setGlobalSelectedAiModel(targetConversation.aiModelId);
-
-      // 2. Mark clicked conversation as active
       return prev.map(c => ({ ...c, active: c.id === id }));
     });
 
-    // 3. Fetch messages after state update
     if (id !== 'new') {
       try {
-        const response = await authFetch(`${import.meta.env.VITE_API_URL}/conversations/${id}/messages`);
+        const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/conversations/${id}/messages`);
         if (!response.ok) throw new Error('Failed to fetch messages.');
         const messagesData: Message[] = await response.json();
         
@@ -55,6 +50,70 @@ function App() {
     }
   }, []);
 
+  // *** THIS SSE LISTENER IS CORRECT AND HANDLES REAL-TIME UPDATES ***
+// *** YOUR SSE useEffect HOOK ***
+useEffect(() => {
+    if (!isAuthenticated) return;
+    const token = localStorage.getItem('authToken');
+    if (!token) return;
+
+    const eventSource = new EventSource(
+        `${import.meta.env.VITE_API_URL}/api/stream/events?token=${token}`
+    );
+
+    eventSource.onopen = () => {
+        console.log("--- FRONTEND: SSE Connection Opened Successfully! ---");
+    };
+
+    eventSource.addEventListener('new_message', (event) => {
+        console.log("--- FRONTEND: 'new_message' event received! ---");
+        
+        try {
+            const newMessage: Message = JSON.parse(event.data);
+            console.log("Parsed newMessage object:", newMessage);
+
+            setConversations(prevConvos => {
+                console.log("Attempting to update state. Current conversations:", prevConvos);
+                let matchFound = false;
+
+                const updatedConvos = prevConvos.map(convo => {
+                    // This log will tell us exactly what is being compared.
+                    console.log(`COMPARING: convo.id (${typeof convo.id}: ${convo.id}) vs. newMessage.conversation_id (${typeof newMessage.conversation_id}: ${newMessage.conversation_id})`);
+                    
+                    if (String(convo.id) === String(newMessage.conversation_id)) {
+                        matchFound = true;
+                        console.log(`SUCCESS: Match found! Updating conversation: "${convo.title}"`);
+                        return {
+                            ...convo,
+                            messages: [...convo.messages, newMessage]
+                        };
+                    }
+                    return convo;
+                });
+
+                if (!matchFound) {
+                    console.error("UI RENDER BLOCKED: No matching conversation was found in the React state. The UI will not update.");
+                }
+                
+                return updatedConvos;
+            });
+        } catch (error) {
+            console.error("FRONTEND: Failed to parse message from server:", error);
+        }
+    });
+
+    eventSource.onerror = (err) => {
+        console.error("--- FRONTEND: SSE Connection Error! ---", err);
+        eventSource.close();
+    };
+
+    return () => {
+        eventSource.close();
+    };
+}, [isAuthenticated]);
+
+
+  // This effect for setting up user data is also correct.
   useEffect(() => {
     const setupUserData = async () => {
       setIsLoading(true);
@@ -66,7 +125,7 @@ function App() {
         setAvailableModels(userModels);
 
         try {
-          const response = await authFetch(`${import.meta.env.VITE_API_URL}/conversations`);
+          const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/conversations`);
           if (!response.ok) throw new Error('Failed to fetch conversations');
           const dataFromBackend = await response.json();
           
@@ -87,18 +146,7 @@ function App() {
             setConversations(conversationsWithState);
             setGlobalSelectedAiModel(conversationsWithState[0].aiModelId);
             
-            const firstId = conversationsWithState[0].id;
-            try {
-              const messagesResponse = await authFetch(`${import.meta.env.VITE_API_URL}/conversations/${firstId}/messages`);
-              if (!messagesResponse.ok) throw new Error('Failed to fetch messages');
-              const messagesData: Message[] = await messagesResponse.json();
-              
-              setConversations(prev => prev.map(c => 
-                c.id === firstId ? { ...c, messages: messagesData } : c
-              ));
-            } catch (error) {
-              console.error('Error loading first conversation messages:', error);
-            }
+            await handleSelectConversation(conversationsWithState[0].id);
           } else {
             setConversations([]);
             if (userModels.length > 0) {
@@ -118,7 +166,7 @@ function App() {
     };
     
     setupUserData();
-  }, [isAuthenticated, user, i18n.language, t]);
+  }, [isAuthenticated, user, i18n.language, t, handleSelectConversation]);
 
   useEffect(() => {
     document.title = t('appTitle');
@@ -127,9 +175,7 @@ function App() {
   const activeConversation = conversations.find(conv => conv.active) || null;
   
   const handleNewConversation = () => {
-    const isAlreadyInNewChat = conversations.some(c => c.id === 'new');
-    if (isAlreadyInNewChat) return;
-
+    if (conversations.some(c => c.id === 'new')) return;
     if (!globalSelectedAiModel) {
         alert(t('noModelsAssignedError'));
         return;
@@ -147,9 +193,11 @@ function App() {
     setConversations(prev => [newTempConvo, ...prev.map(c => ({ ...c, active: false }))]);
   };
   
+  // --- THIS IS THE CORRECTED AND SIMPLIFIED FUNCTION ---
   const handleSendMessage = async (content: string, attachments?: File[]) => {
     if (!activeConversation) return;
 
+    // 1. Optimistic UI update for the user's message
     const optimisticMessage: Message = {
       id: `temp-${Date.now()}`,
       content: content,
@@ -162,11 +210,12 @@ function App() {
       } : undefined
     };
     setConversations(prev => prev.map(c => 
-        c.id === activeConversation.id ? { ...c, messages: [...c.messages, optimisticMessage] } : c
+      c.id === activeConversation.id ? { ...c, messages: [...c.messages, optimisticMessage] } : c
     ));
 
+    // 2. Prepare data to send to the backend
     const isNewConversation = activeConversation.id === 'new';
-    const endpoint = isNewConversation ? '/conversations/initiate' : '/messages';
+    const endpoint = isNewConversation ? '/api/conversations/initiate' : '/api/messages';
     const formData = new FormData();
     formData.append('content', content);
     if (isNewConversation) {
@@ -189,46 +238,54 @@ function App() {
             throw new Error(errorData.message || 'API request failed.');
         }
 
+        // 3. Process the backend response
+        // The assistant_message will only be present for immediate (non-audio) responses.
+        // For audio, it will be null, and the final message will arrive via the SSE listener.
         const { new_conversation, user_message, assistant_message } = await response.json();
 
-        // --- MODIFIED LOGIC TO FIX THE BUG ---
         if (isNewConversation) {
-            // This case handles creating a brand new conversation
+            // New conversation was created. Replace the temporary one with the real one.
+            const finalMessages = [user_message];
+            if (assistant_message) {
+                finalMessages.push(assistant_message);
+            }
+
             const finalNewConversation: Conversation = {
                 id: new_conversation.id,
                 title: new_conversation.title,
                 created_at: new_conversation.created_at,
                 aiModelId: new_conversation.ai_model_id,
-                messages: [user_message, assistant_message],
-                active: true, // Make it active immediately
+                messages: finalMessages,
+                active: true,
             };
 
-            setConversations(prev => {
-                // Filter out the temporary 'new' convo and mark all others as inactive
-                const otherConversations = prev
-                    .filter(c => c.id !== 'new')
-                    .map(c => ({ ...c, active: false }));
-                
-                // Add the new, real conversation to the top of the list
-                return [finalNewConversation, ...otherConversations];
-            });
+            setConversations(prev => [
+                finalNewConversation,
+                ...prev.filter(c => c.id !== 'new').map(c => ({ ...c, active: false }))
+            ]);
+
         } else {
-            // This case handles adding messages to an existing conversation
+            // Added a message to an existing conversation.
             setConversations(prev => prev.map(c => {
                 if (c.id === activeConversation.id) {
-                    // Replace the optimistic message with the real ones from the server
+                    // Replace the optimistic message with the final one from the server.
                     const updatedMessages = c.messages.filter(m => m.id !== optimisticMessage.id);
-                    updatedMessages.push(user_message, assistant_message);
+                    updatedMessages.push(user_message);
+                    
+                    // If the assistant replied immediately, add its message.
+                    // The SSE listener will handle cases where this isn't present.
+                    if (assistant_message) {
+                        updatedMessages.push(assistant_message);
+                    }
+                    
                     return { ...c, messages: updatedMessages };
                 }
-                return c; // Return other conversations unchanged
+                return c;
             }));
         }
-        // --- END OF MODIFIED LOGIC ---
-
     } catch (error) {
         console.error("Error sending message:", error);
-        // On error, remove the optimistic message
+        // On error, remove the optimistic message to avoid confusion.
         setConversations(prev => prev.map(c => 
             c.id === activeConversation.id ? { ...c, messages: c.messages.filter(m => m.id !== optimisticMessage.id) } : c
         ));
@@ -238,8 +295,7 @@ function App() {
   const handleAiModelChange = (newModelId: string) => {
     setGlobalSelectedAiModel(newModelId);
     
-    if (activeConversation && 
-        (activeConversation.id === 'new' || activeConversation.messages.length === 0)) {
+    if (activeConversation && (activeConversation.id === 'new' || activeConversation.messages.length === 0)) {
       setConversations(prev => 
         prev.map(c => 
           c.id === activeConversation.id ? { ...c, aiModelId: newModelId } : c
