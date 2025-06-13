@@ -13,7 +13,7 @@ export default defineConfig({
   server: { // Add or modify the server configuration
     host: true, // Optional: This makes the server accessible on your local network
     allowedHosts: [
-      'eager-ducks-train.loca.lt',
+      'four-candles-sort.loca.lt',
       'salty-states-beam.loca.lt'
        // Your specific ngrok URL
       // You can add more allowed hosts here if needed

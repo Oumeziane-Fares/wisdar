@@ -17,7 +17,7 @@ type ApiKeyInputs = {
 const AdminDashboard: React.FC = () => {
   const { t } = useTranslation();
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
+  const [activeTab, setActiveTab] = useState<AdminTab>('apiKeys'); // Default to apiKeys for easier testing
 
   const [models, setModels] = useState<AiModel[]>([]);
   const [apiKeyInputs, setApiKeyInputs] = useState<ApiKeyInputs>({});
@@ -30,12 +30,14 @@ const AdminDashboard: React.FC = () => {
       const fetchRequiredData = async () => {
         setIsLoadingModels(true);
         try {
-          const keyResponse = await authFetch(`${import.meta.env.VITE_API_URL}/models/security/public-key`);
+          // --- FIX: Use the correct, relative API path ---
+          const keyResponse = await authFetch('/api/models/security/public-key');
           if (!keyResponse.ok) throw new Error('Failed to fetch public key.');
           const keyData = await keyResponse.json();
           setPublicKey(keyData.public_key);
 
-          const modelsResponse = await authFetch(`${import.meta.env.VITE_API_URL}/models/`);
+          // --- FIX: Use the correct, relative API path ---
+          const modelsResponse = await authFetch('/api/models');
           if (!modelsResponse.ok) throw new Error('Failed to fetch models.');
           const modelsData: AiModel[] = await modelsResponse.json();
           setModels(modelsData);
@@ -77,8 +79,6 @@ const AdminDashboard: React.FC = () => {
     let encryptedApiKey: string;
 
     try {
-      // --- 2. NEW ENCRYPTION LOGIC USING NODE-FORGE ---
-      
       // Convert the PEM public key string into a forge public key object
       const forgePublicKey = forge.pki.publicKeyFromPem(publicKey);
 
@@ -105,7 +105,8 @@ const AdminDashboard: React.FC = () => {
     }
 
     try {
-      const response = await authFetch(`${import.meta.env.VITE_API_URL}/models/${modelId}`, {
+      // --- FIX: Use the correct, relative API path for updating the key ---
+      const response = await authFetch(`/api/models/${modelId}/api-key`, {
         method: 'PUT',
         body: JSON.stringify({ encrypted_api_key: encryptedApiKey }),
       });
@@ -133,7 +134,7 @@ const AdminDashboard: React.FC = () => {
           <div className="space-y-6">
             <h2 className="text-2xl font-semibold">Tableau de bord</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* ... your stat cards ... */}
+              {/* Stat cards can be added here */}
             </div>
           </div>
         );
@@ -142,7 +143,7 @@ const AdminDashboard: React.FC = () => {
         return (
           <div className="space-y-6">
             <h2 className="text-2xl font-semibold">Gestion des utilisateurs</h2>
-            {/* ... your users content ... */}
+            {/* User management table/components would go here */}
           </div>
         );
         
@@ -150,7 +151,7 @@ const AdminDashboard: React.FC = () => {
         return (
           <div className="space-y-6">
             <h2 className="text-2xl font-semibold">Gestion des conversations</h2>
-            {/* ... your conversations content ... */}
+            {/* Conversation management components would go here */}
           </div>
         );
         
@@ -158,7 +159,7 @@ const AdminDashboard: React.FC = () => {
         return (
           <div className="space-y-6">
             <h2 className="text-2xl font-semibold">Surveillance de l'utilisation</h2>
-            {/* ... your usage content ... */}
+            {/* Usage charts and stats would go here */}
           </div>
         );
       
@@ -204,14 +205,14 @@ const AdminDashboard: React.FC = () => {
         return (
           <div className="space-y-6">
             <h2 className="text-2xl font-semibold">Paramètres système</h2>
-            {/* ... your settings content ... */}
+            {/* System settings components would go here */}
           </div>
         );
     }
   };
 
   return (
-    <div className="w-full h-full bg-gray-100 dark:bg-gray-900 flex">
+    <div className="w-full h-full bg-gray-100 dark:bg-gray-900 flex text-gray-900 dark:text-gray-100">
       <div className="w-64 h-full bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
         <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center">
           <img src="/images/logo-wisdar.png" alt="Wisdar" className="h-8" />
@@ -219,7 +220,6 @@ const AdminDashboard: React.FC = () => {
         </div>
         
         <nav className="flex-1 p-4 space-y-2">
-          {/* ... your nav buttons ... */}
           <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 p-3 rounded-md text-left ${activeTab === 'dashboard' ? 'bg-[#6B5CA5] text-white' : 'hover:bg-gray-100 dark:hover:bg-gray-700'}`}>
             <LucideBarChart size={18} />
             <span>Tableau de bord</span>

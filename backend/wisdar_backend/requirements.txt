@@ -13,3 +13,10 @@ soundfile
 google-generativeai
 openai
 anthropic
+
+# Added for robust real-time chat functionality
+redis==5.0.6
+flask-sse
+celery
+gevent #python -m celery -A src.celery_app.celery_app worker -l info -P gevent windows / python -m celery -A src.celery_app.celery_app worker -l info macos linux 
+requests

@@ -1,9 +1,10 @@
+import os
 # MODIFIED: Import db from the new central database.py file
 from src.database import db
 from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 from datetime import datetime
-
+from flask import url_for
 
 class Conversation(db.Model):
     __tablename__ = 'conversations'
@@ -61,7 +62,10 @@ class Message(db.Model):
             "role": self.role,
             "content": self.content,
             "timestamp": self.created_at.isoformat(),
-            "attachment": self.attachment.to_dict(host_url) if self.attachment else None
+            "attachment": self.attachment.to_dict(host_url) if self.attachment else None,
+            # --- ADD THIS LINE ---
+            'conversation_id': self.conversation_id
+            # ---------------------
         }
 
 
@@ -86,16 +90,30 @@ class Attachment(db.Model):
         return f"<Attachment for Message {self.message_id}: {self.file_name}>"
     
     def to_dict(self, host_url=None):
-        # --- MODIFIED FOR ROBUSTNESS ---
-        # This now safely handles cases where storage_url might be None or empty
-        full_storage_url = self.storage_url
-        if host_url and self.storage_url and self.storage_url.startswith('/api'):
-            full_storage_url = f"{host_url.strip('/')}{self.storage_url}"
+        file_url = None
+        if self.storage_url:
+            # Extract just the filename from the storage_url path
+            filename = os.path.basename(self.storage_url)
+            
+            try:
+                file_url = url_for(
+                    'chat.get_uploaded_file', 
+                    filename=filename,  # Use only the filename here
+                    _external=True,
+                    _scheme='https'
+                )
+            except RuntimeError:
+                if host_url:
+                    # Ensure clean URL concatenation
+                    file_url = f"{host_url.rstrip('/')}/api/uploads/{filename}"
+                else:
+                    file_url = f"/api/uploads/{filename}"
         
         return {
-            "fileName": self.file_name,
-            "fileType": self.file_type,
-            "fileURL": full_storage_url,
+            'id': self.id,
+            'fileName': os.path.basename(self.storage_url) if self.storage_url else None,
+            'fileType': self.file_type,
+            'fileURL': file_url,
             "transcription": self.transcription,
             "speechmatics_job_id": self.speechmatics_job_id
         }

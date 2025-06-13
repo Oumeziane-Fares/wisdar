@@ -1,18 +1,19 @@
-# backend/wisdar_backend/run.py
+# IMPORTANT: gevent monkey-patching must be the very first thing to run
+from gevent import monkey
+monkey.patch_all()
+
+# Now import the rest of the modules
+from gevent.pywsgi import WSGIServer
 from src.main import app
-from waitress import serve
 import os
 
-
-# --- ADD THIS FOR NGROK TESTING ---
-# 1. Start ngrok first (e.g., ngrok http 5000)
-# 2. Copy the public URL ngrok gives you (e.g., "your-random-string.ngrok.io")
-# 3. Paste it here. This tells Flask its public address.
-app.config['SERVER_NAME'] = '6ef4-105-110-237-176.ngrok-free.app'
-# ------------------------------------
-
-
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    # Use waitress as the production server
-    serve(app, host='0.0.0.0', port=port)
+    port = int(os.environ.get("PORT", 5000))
+
+    # Replace the waitress serve() call with the gevent WSGIServer
+    http_server = WSGIServer(('0.0.0.0', port), app)
+    
+    print(f"--- Gevent WSGI server running on http://0.0.0.0:{port} ---")
+    print("--- This server is now fully compatible with the gevent-based Celery worker. ---")
+    
+    http_server.serve_forever()
