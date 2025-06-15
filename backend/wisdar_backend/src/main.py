@@ -16,7 +16,7 @@ from flask_jwt_extended import JWTManager
 from src.database import db
 from src.models.user import User
 from src.models.ai_model import AIModel
-from src.routes.user import auth_bp
+from src.routes.user import auth_bp, init_oauth
 from src.routes.chat import chat_bp
 from src.routes.stream import stream_bp
 from src.routes.models import models_bp
@@ -87,6 +87,7 @@ if not app.debug:
 # --- Initialize Extensions ---
 db.init_app(app)
 jwt = JWTManager(app)
+init_oauth(app) 
 
 # --- User Lookup Loader for JWT ---
 @jwt.user_lookup_loader

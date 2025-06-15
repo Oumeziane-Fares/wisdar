@@ -1,9 +1,38 @@
-from flask import Blueprint, jsonify, request
+import os
+from flask import Blueprint, jsonify, request, redirect, url_for, current_app
 from src.models.user import User, db
 from flask_jwt_extended import create_access_token
+from authlib.integrations.flask_client import OAuth
 
 # This blueprint handles authentication and user management routes.
 auth_bp = Blueprint('auth', __name__)
+oauth = OAuth()
+
+def init_oauth(app):
+    """
+    Initializes the OAuth providers with credentials from environment variables.
+    This function should be called from your main app factory.
+    """
+    oauth.init_app(app)
+    oauth.register(
+        name='google',
+        client_id=os.getenv('GOOGLE_CLIENT_ID'),
+        client_secret=os.getenv('GOOGLE_CLIENT_SECRET'),
+        server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
+        client_kwargs={'scope': 'openid email profile'}
+    )
+    oauth.register(
+        name='twitter',
+        client_id=os.getenv('TWITTER_CLIENT_ID'),
+        client_secret=os.getenv('TWITTER_CLIENT_SECRET'),
+        api_base_url='https://api.twitter.com/2/',
+        request_token_url=None, # Not used for OAuth 2.0
+        access_token_url='https://api.twitter.com/2/oauth2/token',
+        authorize_url='https://twitter.com/i/oauth2/authorize',
+        userinfo_endpoint='users/me?user.fields=id,name,username', # Twitter OAuth 2 doesn't provide email
+        client_kwargs={'scope': 'users.read tweet.read'}
+    )
+
 
 @auth_bp.route('/register', methods=['POST'])
 def register_user():
@@ -16,22 +45,18 @@ def register_user():
     email = data.get('email')
     password = data.get('password')
 
-    # Validate that all required fields are present
     if not full_name or not email or not password:
         return jsonify({"message": "Full name, email, and password are required"}), 400
 
-    # Check if the email already exists in the database
     if User.query.filter_by(email=email).first():
-        return jsonify({"message": "Email already exists"}), 409 # 409 Conflict
+        return jsonify({"message": "Email already exists"}), 409
 
-    # Create a new user instance and set the hashed password
     new_user = User(full_name=full_name, email=email)
-    new_user.set_password(password)  # This uses the method from your User model to hash the password
+    new_user.set_password(password)
     
     db.session.add(new_user)
     db.session.commit()
 
-    # Return the newly created user's data (without the password hash)
     return jsonify(new_user.to_dict()), 201
 
 
@@ -48,18 +73,74 @@ def login_user():
     if not email or not password:
         return jsonify({"message": "Email and password are required"}), 400
 
-    # Find the user by email
     user = User.query.filter_by(email=email).first()
 
-    # Check if the user exists and if the password is correct
     if user and user.check_password(password):
-        # If credentials are valid, create a JWT access token
         access_token = create_access_token(identity=str(user.id))
-        # Return the token and user info to the frontend
         return jsonify(access_token=access_token, user=user.to_dict())
     
-    # If credentials are not valid, return an error
     return jsonify({"message": "Invalid credentials"}), 401
+
+# --- NEW OAUTH ROUTES ---
+
+@auth_bp.route('/<provider>/login')
+def oauth_login(provider):
+    """
+    Redirects the user to the OAuth provider's login page.
+    This is the first step of the social login flow.
+    """
+    redirect_uri = url_for('auth.oauth_callback', provider=provider, _external=True)
+    return oauth.create_client(provider).authorize_redirect(redirect_uri)
+
+@auth_bp.route('/<provider>/callback')
+def oauth_callback(provider):
+    """
+    Handles the callback from the OAuth provider after the user has authenticated.
+    """
+    frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:5173')
+    try:
+        token = oauth.create_client(provider).authorize_access_token()
+        # The way to get user info differs between providers
+        if provider == 'google':
+            user_info = token.get('userinfo')
+        elif provider == 'twitter':
+            # Note: Twitter OAuth 2.0 does not reliably provide an email address.
+            # This is a known limitation. We'll use the username or ID as a fallback.
+            resp = oauth.twitter.get('users/me', token=token)
+            resp.raise_for_status()
+            user_info = resp.json().get('data', {})
+            # Synthesize an email if not present, for compatibility with our User model
+            user_info['email'] = f"{user_info.get('username', user_info.get('id'))}@twitter.user.not.real.email"
+            user_info['name'] = user_info.get('name', user_info.get('username'))
+        else:
+            return redirect(f"{frontend_url}/?error=unsupported_provider")
+
+    except Exception as e:
+        current_app.logger.error(f"OAuth error with {provider}: {e}")
+        return redirect(f"{frontend_url}/?error=oauth_failed")
+
+    email = user_info.get('email')
+    full_name = user_info.get('name')
+
+    if not email:
+        return redirect(f"{frontend_url}/?error=email_not_provided")
+
+    # Find or create the user
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        user = User(full_name=full_name, email=email)
+        # For social logins, we set a secure, unusable password
+        random_password = os.urandom(16).hex()
+        user.set_password(random_password)
+        db.session.add(user)
+        db.session.commit()
+    
+    # Generate JWT for the user
+    access_token = create_access_token(identity=str(user.id))
+    
+    # Redirect to a dedicated frontend route that will store the token
+    # This is more secure than putting the token in the URL bar permanently
+    return redirect(f"{frontend_url}/auth/callback?token={access_token}")
 
 
 # --- The following routes are for general user management ---
@@ -82,7 +163,6 @@ def update_user(user_id):
     """Updates a user's details (full_name, email)."""
     user = User.query.get_or_404(user_id)
     data = request.json
-    # Note: This doesn't handle password updates. That would require a separate, more secure process.
     user.full_name = data.get('full_name', user.full_name)
     user.email = data.get('email', user.email)
     db.session.commit()
