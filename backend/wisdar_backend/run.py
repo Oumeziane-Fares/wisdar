@@ -1,19 +1,29 @@
-# IMPORTANT: gevent monkey-patching must be the very first thing to run
+import os
+import signal
 from gevent import monkey
 monkey.patch_all()
 
-# Now import the rest of the modules
 from gevent.pywsgi import WSGIServer
 from src.main import app
-import os
+
+def shutdown_handler(signal, frame):
+    print("\nShutting down server...")
+    http_server.stop(timeout=10)
+    exit(0)
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
-
-    # Replace the waitress serve() call with the gevent WSGIServer
-    http_server = WSGIServer(('0.0.0.0', port), app)
+    port = int(os.environ.get('PORT', 5000))
+    http_server = WSGIServer(('', port), app)
     
-    print(f"--- Gevent WSGI server running on http://0.0.0.0:{port} ---")
-    print("--- This server is now fully compatible with the gevent-based Celery worker. ---")
+    # Setup graceful shutdown
+    signal.signal(signal.SIGINT, shutdown_handler)
+    signal.signal(signal.SIGTERM, shutdown_handler)
     
-    http_server.serve_forever()
+    print(f"Server listening on port {port}...")
+    print(f"SSE endpoint: http://localhost:{port}/api/stream/events")
+    print("Press Ctrl+C to stop")
+    
+    try:
+        http_server.serve_forever()
+    except KeyboardInterrupt:
+        shutdown_handler(None, None)

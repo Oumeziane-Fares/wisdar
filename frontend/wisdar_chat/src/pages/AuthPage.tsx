@@ -6,8 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 
-// --- NEW ---
-// SVG component for the Google logo
+// Google Icon SVG
 const GoogleIcon = (props: React.SVGProps<SVGSVGElement>) => (
   <svg
     {...props}
@@ -35,7 +34,7 @@ const GoogleIcon = (props: React.SVGProps<SVGSVGElement>) => (
   </svg>
 );
 
-// SVG component for the X logo
+// X/Twitter Icon SVG
 const XIcon = (props: React.SVGProps<SVGSVGElement>) => (
   <svg
     {...props}
@@ -58,6 +57,7 @@ const AuthPage: React.FC = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [logoError, setLogoError] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,43 +65,68 @@ const AuthPage: React.FC = () => {
     setSuccess('');
     setIsLoading(true);
 
-    if (isLoginView) {
-      const result = await login(email, password);
-      if (!result.success) {
-        setError(result.error || t('loginErrorInvalidCredentials', 'Invalid credentials.'));
-      }
-    } else {
-      const result = await register(fullName, email, password);
-      if (result.success) {
-        setSuccess(t('registrationSuccess', 'Registration successful! Please log in.'));
-        setIsLoginView(true);
+    try {
+      if (isLoginView) {
+        const result = await login(email, password);
+        if (result.success) {
+          // Redirect to main app by reloading the page
+          window.location.reload();
+        } else {
+          setError(result.error || t('loginErrorInvalidCredentials', 'Invalid credentials.'));
+        }
       } else {
-        setError(result.error || t('registrationError', 'Registration failed.'));
+        const result = await register(fullName, email, password);
+        if (result.success) {
+          setSuccess(t('registrationSuccess', 'Registration successful! Please log in.'));
+          setIsLoginView(true);
+        } else {
+          setError(result.error || t('registrationError', 'Registration failed.'));
+        }
       }
+    } catch (err) {
+      setError(t('networkError', 'Network error. Please try again.'));
+      console.error("Authentication error:", err);
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   const handleSocialLogin = (provider: 'google' | 'twitter') => {
-    console.log(`Redirecting to ${provider} for authentication...`);
-    window.location.href = `http://localhost:5000/api/auth/${provider}`;
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    window.location.href = `${apiUrl}/api/auth/${provider}`;
   };
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900 p-4">
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
-          <img src="/images/logo-wisdar.png" alt="Wisdar" className="w-24 mx-auto mb-4" />
-          <CardTitle>{isLoginView ? t('loginPageTitle') : t('registerPageTitle', 'Create an Account')}</CardTitle>
-          <CardDescription>{isLoginView ? t('loginPageDescription') : t('registerPageDescription', 'Fill in the details to join.')}</CardDescription>
+          {logoError ? (
+            <div className="bg-gray-200 border-2 border-dashed rounded-xl w-24 h-24 mx-auto mb-4" />
+          ) : (
+            <img 
+              src="/images/logo-wisdar.png" 
+              alt="Wisdar" 
+              className="w-24 mx-auto mb-4"
+              onError={() => setLogoError(true)}
+            />
+          )}
+          <CardTitle>
+            {isLoginView ? t('loginPageTitle') : t('registerPageTitle', 'Create an Account')}
+          </CardTitle>
+          <CardDescription>
+            {isLoginView ? t('loginPageDescription') : t('registerPageDescription', 'Fill in the details to join.')}
+          </CardDescription>
         </CardHeader>
+        
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             {!isLoginView && (
               <div className="space-y-2">
                 <Label htmlFor="fullName">{t('fullNameLabel', 'Full Name')}</Label>
                 <Input
-                  id="fullName" type="text" value={fullName}
+                  id="fullName" 
+                  type="text" 
+                  value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
                   placeholder={t('fullNamePlaceholder', 'Your full name')}
                   required
@@ -109,30 +134,53 @@ const AuthPage: React.FC = () => {
                 />
               </div>
             )}
+            
             <div className="space-y-2">
               <Label htmlFor="email">{t('emailLabel')}</Label>
               <Input
-                id="email" type="email" value={email}
+                id="email" 
+                type="email" 
+                value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder={t('emailPlaceholder')}
                 required
                 className="dark:bg-gray-800 dark:text-white"
               />
             </div>
+            
             <div className="space-y-2">
               <Label htmlFor="password">{t('passwordLabel')}</Label>
               <Input
-                id="password" type="password" value={password}
+                id="password" 
+                type="password" 
+                value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder={t('passwordPlaceholder')}
                 required
                 className="dark:bg-gray-800 dark:text-white"
               />
             </div>
-            {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
-            {success && <p className="text-sm text-green-600 dark:text-green-400">{success}</p>}
-            <Button type="submit" className="w-full bg-[#6B5CA5] hover:bg-[#5d4f91]" disabled={isLoading}>
-              {isLoading ? t('loading', 'Loading...') : (isLoginView ? t('loginButton') : t('registerButton', 'Register'))}
+            
+            {error && (
+              <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+            )}
+            
+            {success && (
+              <p className="text-sm text-green-600 dark:text-green-400">{success}</p>
+            )}
+            
+            <Button 
+              type="submit" 
+              className="w-full bg-[#6B5CA5] hover:bg-[#5d4f91]" 
+              disabled={isLoading}
+            >
+              {isLoading 
+                ? t('loading', 'Loading...') 
+                : (isLoginView 
+                  ? t('loginButton') 
+                  : t('registerButton', 'Register')
+                )
+              }
             </Button>
           </form>
 
@@ -147,24 +195,46 @@ const AuthPage: React.FC = () => {
                 </span>
               </div>
             </div>
+            
             <div className="grid grid-cols-2 gap-4 mt-4">
-              {/* --- UPDATED --- */}
-              <Button variant="outline" onClick={() => handleSocialLogin('google')}>
+              <Button 
+                variant="outline" 
+                onClick={() => handleSocialLogin('google')}
+                disabled={isLoading}
+              >
                 <GoogleIcon className="mr-2 h-4 w-4" />
                 Google
               </Button>
-              <Button variant="outline" onClick={() => handleSocialLogin('twitter')}>
+              
+              <Button 
+                variant="outline" 
+                onClick={() => handleSocialLogin('twitter')}
+                disabled={isLoading}
+              >
                 <XIcon className="mr-2 h-4 w-4" />
                 X
               </Button>
             </div>
           </div>
-
         </CardContent>
+        
         <CardFooter className="flex flex-col gap-2 text-center text-sm">
-          <Button variant="link" className="p-0 h-auto" onClick={() => { setIsLoginView(!isLoginView); setError(''); setSuccess(''); }}>
-            {isLoginView ? t('switchToRegister', "Don't have an account? Register") : t('switchToLogin', "Already have an account? Login")}
+          <Button 
+            variant="link" 
+            className="p-0 h-auto" 
+            onClick={() => { 
+              setIsLoginView(!isLoginView); 
+              setError(''); 
+              setSuccess(''); 
+            }}
+            disabled={isLoading}
+          >
+            {isLoginView 
+              ? t('switchToRegister', "Don't have an account? Register") 
+              : t('switchToLogin', "Already have an account? Login")
+            }
           </Button>
+          
           <div className="text-xs text-gray-500 dark:text-gray-400 mt-2">
             <p className="font-semibold">{t('mockCredentialsInfo')}</p>
             <p>User: user@example.com / userpass</p>

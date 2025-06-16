@@ -1,29 +1,24 @@
-import os
+# backend/wisdar_backend/src/celery_app.py
+
 from celery import Celery
-from dotenv import load_dotenv
 
-# Load environment variables to get the Redis URL
-load_dotenv()
+# --- CHANGE: Create a placeholder Celery instance ---
+# We no longer import the Flask app here. This breaks the circular import.
+celery_app = Celery('wisdar_tasks', include=['src.tasks'])
 
-# Get the same Redis URL your Flask app uses
-redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+# --- CHANGE: Create an 'init_celery' function ---
+# This function will be called from our main application file
+# to configure Celery with the Flask app's settings.
+def init_celery(app):
+    celery_app.conf.update(
+        broker_url=app.config["REDIS_URL"],
+        result_backend=app.config["REDIS_URL"]
+    )
 
-# Create the Celery app instance 
-# The first argument is the name of the current module.
-# The 'broker' is the connection URL for Redis.
-# The 'include' argument is a list of modules to import when the worker starts.
-celery_app = Celery(
-    'wisdar_tasks',
-    broker=redis_url,
-    backend=redis_url, # Using Redis as the result backend is common
-    include=['src.tasks'] # Point to the tasks file we will create next
-)
+    class ContextTask(celery_app.Task):
+        def __call__(self, *args, **kwargs):
+            with app.app_context():
+                return self.run(*args, **kwargs)
 
-# Optional Celery configuration 
-celery_app.conf.update(
-    task_serializer='json',
-    accept_content=['json'],
-    result_serializer='json',
-    timezone='UTC',
-    enable_utc=True,
-)
+    celery_app.Task = ContextTask
+    return celery_app

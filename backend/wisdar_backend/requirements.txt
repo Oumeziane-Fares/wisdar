@@ -18,6 +18,6 @@ anthropic
 redis==5.0.6
 flask-sse
 celery
-gevent #python -m celery -A src.celery_app.celery_app worker -l info -P gevent windows / python -m celery -A src.celery_app.celery_app worker -l info macos linux 
+gevent #python -m celery -A celery_worker.celery worker -l info -P gevent windows / python -m celery -A src.celery_app.celery_app worker -l info macos linux 
 requests
 Authlib
