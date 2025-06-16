@@ -1,7 +1,13 @@
 import os
-from flask import Blueprint, jsonify, request, redirect, url_for, current_app
+from flask import Blueprint, jsonify, request, redirect, url_for, current_app, make_response
 from src.models.user import User, db
-from flask_jwt_extended import create_access_token
+from flask_jwt_extended import (
+    create_access_token, 
+    set_access_cookies, 
+    unset_jwt_cookies,
+    jwt_required,
+    get_jwt_identity
+)
 from authlib.integrations.flask_client import OAuth
 
 # This blueprint handles authentication and user management routes.
@@ -63,7 +69,7 @@ def register_user():
 @auth_bp.route('/login', methods=['POST'])
 def login_user():
     """
-    Handles user login.
+    Handles user login and sets the JWT in an HTTP-only cookie.
     Expects 'email' and 'password'.
     """
     data = request.json
@@ -77,11 +83,46 @@ def login_user():
 
     if user and user.check_password(password):
         access_token = create_access_token(identity=str(user.id))
-        return jsonify(access_token=access_token, user=user.to_dict())
+        
+        # Create response and set cookie
+        response = jsonify({"user": user.to_dict()})
+        set_access_cookies(response, access_token)
+        
+        return response, 200
     
     return jsonify({"message": "Invalid credentials"}), 401
 
-# --- NEW OAUTH ROUTES ---
+@auth_bp.route('/me', methods=['GET'])
+@jwt_required()
+def get_current_user():
+    """
+    Returns the details of the currently authenticated user based on their JWT cookie.
+    This is used by the frontend to verify the user's session on startup.
+    """
+    # Get the identity of the current user from the JWT in the cookie
+    current_user_id = get_jwt_identity()
+    
+    # Find the user in the database
+    user = User.query.get(current_user_id)
+    
+    if not user:
+        return jsonify({"message": "User not found"}), 404
+        
+    # Return the user's data
+    return jsonify(user.to_dict()), 200
+
+
+@auth_bp.route('/logout', methods=['POST'])
+@jwt_required()
+def logout_user():
+    """
+    Handles user logout by unsetting the JWT cookie.
+    """
+    response = jsonify({"message": "Logout successful"})
+    unset_jwt_cookies(response)
+    return response, 200
+
+# --- OAUTH ROUTES ---
 
 @auth_bp.route('/<provider>/login')
 def oauth_login(provider):
@@ -95,21 +136,20 @@ def oauth_login(provider):
 @auth_bp.route('/<provider>/callback')
 def oauth_callback(provider):
     """
-    Handles the callback from the OAuth provider after the user has authenticated.
+    Handles the callback from the OAuth provider.
+    Finds/creates a user, generates a JWT, sets it in a cookie,
+    and redirects to the frontend.
     """
     frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:5173')
+    
     try:
         token = oauth.create_client(provider).authorize_access_token()
-        # The way to get user info differs between providers
         if provider == 'google':
             user_info = token.get('userinfo')
         elif provider == 'twitter':
-            # Note: Twitter OAuth 2.0 does not reliably provide an email address.
-            # This is a known limitation. We'll use the username or ID as a fallback.
             resp = oauth.twitter.get('users/me', token=token)
             resp.raise_for_status()
             user_info = resp.json().get('data', {})
-            # Synthesize an email if not present, for compatibility with our User model
             user_info['email'] = f"{user_info.get('username', user_info.get('id'))}@twitter.user.not.real.email"
             user_info['name'] = user_info.get('name', user_info.get('username'))
         else:
@@ -129,7 +169,6 @@ def oauth_callback(provider):
     user = User.query.filter_by(email=email).first()
     if not user:
         user = User(full_name=full_name, email=email)
-        # For social logins, we set a secure, unusable password
         random_password = os.urandom(16).hex()
         user.set_password(random_password)
         db.session.add(user)
@@ -138,27 +177,33 @@ def oauth_callback(provider):
     # Generate JWT for the user
     access_token = create_access_token(identity=str(user.id))
     
-    # Redirect to a dedicated frontend route that will store the token
-    # This is more secure than putting the token in the URL bar permanently
-    return redirect(f"{frontend_url}/auth/callback?token={access_token}")
+    # Create a redirect response to the frontend's main page or dashboard
+    response = make_response(redirect(f"{frontend_url}/", 302))
+    
+    # Set the authentication cookie on this response
+    set_access_cookies(response, access_token)
+    
+    return response
 
 
-# --- The following routes are for general user management ---
-# In a production app, these should be protected so only admins can use them.
+# --- User Management Routes (for admin purposes) ---
 
 @auth_bp.route('/users', methods=['GET'])
+@jwt_required() # Protect this route
 def get_users():
     """Returns a list of all users."""
     users = User.query.all()
     return jsonify([user.to_dict() for user in users])
 
 @auth_bp.route('/users/<int:user_id>', methods=['GET'])
+@jwt_required() # Protect this route
 def get_user(user_id):
     """Returns a single user by their ID."""
     user = User.query.get_or_404(user_id)
     return jsonify(user.to_dict())
 
 @auth_bp.route('/users/<int:user_id>', methods=['PUT'])
+@jwt_required() # Protect this route
 def update_user(user_id):
     """Updates a user's details (full_name, email)."""
     user = User.query.get_or_404(user_id)
@@ -169,6 +214,7 @@ def update_user(user_id):
     return jsonify(user.to_dict())
 
 @auth_bp.route('/users/<int:user_id>', methods=['DELETE'])
+@jwt_required() # Protect this route
 def delete_user(user_id):
     """Deletes a user."""
     user = User.query.get_or_404(user_id)

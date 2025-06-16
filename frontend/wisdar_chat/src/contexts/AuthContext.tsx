@@ -1,125 +1,126 @@
-import React, { createContext, useState, useContext, ReactNode, useEffect } from 'react';
-import { AiModel } from '../types'; // Import the shared AiModel type
+import React, { createContext, useState, useEffect, useContext, ReactNode } from 'react';
+import { authFetch } from '@/lib/api'; // Corrected import path
 
-type UserRole = 'user' | 'admin';
-
-// MODIFIED: User interface now expects an array of assigned models from the backend
-export interface User {
-  id: number;
+// Define the shape of the User object
+interface User {
+  id: string;
   full_name: string;
   email: string;
-  role: UserRole;
-  assigned_models: AiModel[];
 }
 
+// Define the shape of the context value
 interface AuthContextType {
-  isAuthenticated: boolean;
   user: User | null;
-  login: (emailInput: string, passwordInput: string) => Promise<{ success: boolean; error?: string }>;
-  register: (fullNameInput: string, emailInput: string, passwordInput: string) => Promise<{ success: boolean; error?: string }>;
-  logout: () => void;
+  isAuthenticated: boolean;
+  loading: boolean;
+  login: (email: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
+  register: (fullName: string, email: string, password: string) => Promise<void>;
 }
 
+// Create the context with a default undefined value
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Get the API URL from the environment variable we just set
-const API_BASE_URL = import.meta.env.VITE_API_URL;
+// Define the props for the AuthProvider
+interface AuthProviderProps {
+  children: ReactNode;
+}
 
-export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
 
+  // This effect runs on initial app load to check if a user session exists
   useEffect(() => {
-    // This effect runs on initial load to check for a persisted session
-    const token = localStorage.getItem('authToken');
-    const storedUser = localStorage.getItem('currentUser');
+    const checkUserStatus = async () => {
+      try {
+        // We make a request to a protected endpoint.
+        // If the cookie is valid, this will succeed and return user data.
+        const response = await authFetch('/auth/me'); // Using the new /me route
+        if (response.ok) {
+          const userData = await response.json();
+          setUser(userData);
+        } else {
+          // This case handles when the cookie is invalid or expired
+          setUser(null);
+        }
+      } catch (error) {
+        console.log('No active session found or server is down.');
+        setUser(null);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-    if (token && storedUser) {
-      // In a real app, you might re-validate the token with the backend here.
-      // For now, we'll trust the stored user data if a token exists.
-      setUser(JSON.parse(storedUser));
-    }
+    checkUserStatus();
   }, []);
 
-  const login = async (emailInput: string, passwordInput: string): Promise<{ success: boolean; error?: string }> => {
-    try {
-      // Make a real API call to the backend /login endpoint
-      const response = await fetch(`${API_BASE_URL}/api/login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email: emailInput, password: passwordInput }),
-      });
+  const login = async (email: string, password: string) => {
+    // Note: The /api prefix is handled by the Vite proxy
+    const response = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
 
-      const data = await response.json();
-     // --- ADD THIS DEBUGGING LINE ---
-      console.log("LOGIN RESPONSE - User data from backend:", data.user);
-      // -----------------------------
-      if (!response.ok) {
-        // If response is not 2xx, use the error message from the backend
-        return { success: false, error: data.message || 'Login failed' };
-      }
+    const data = await response.json();
 
-      // On successful login, backend returns an access_token and user object
-      if (data.access_token && data.user) {
-        localStorage.setItem('authToken', data.access_token);
-        localStorage.setItem('currentUser', JSON.stringify(data.user));
-        setUser(data.user);
-        return { success: true };
-      } else {
-        return { success: false, error: 'Invalid response from server.' };
-      }
-
-    } catch (error) {
-      console.error("Login API call failed:", error);
-      return { success: false, error: "Cannot connect to the server." };
+    if (response.ok) {
+      // The auth cookie is set by the server automatically.
+      // The response now contains the user object.
+      setUser(data.user);
+    } else {
+      throw new Error(data.message || 'Login failed');
     }
   };
-
-  const register = async (fullNameInput: string, emailInput: string, passwordInput: string): Promise<{ success: boolean; error?: string }> => {
-    try {
-      // Make a real API call to the backend /register endpoint
-      const response = await fetch(`${API_BASE_URL}/api/register`, {
+  
+  const register = async (fullName: string, email: string, password: string) => {
+    const response = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          full_name: fullNameInput,
-          email: emailInput,
-          password: passwordInput
-        })
-      });
-      
-      const data = await response.json();
+        body: JSON.stringify({ full_name: fullName, email, password }),
+    });
 
-      if (!response.ok) { // Check if response status is not 2xx
-        // Use the error message from the backend (e.g., "Email already exists")
-        return { success: false, error: data.message || "Registration failed" };
-      }
-      
-      // Registration was successful
-      return { success: true };
+    const data = await response.json();
 
+    if (!response.ok) {
+        throw new Error(data.message || 'Registration failed');
+    }
+    // After registration, you can prompt the user to log in.
+  };
+
+  const logout = async () => {
+    try {
+      // Call the backend logout endpoint to clear the http-only cookie
+      await authFetch('/auth/logout', { method: 'POST' });
     } catch (error) {
-      console.error("Registration API call failed:", error);
-      return { success: false, error: "Cannot connect to the server." };
+      console.error("Logout request failed, clearing client-side state anyway.", error);
+    } finally {
+      // Clear user state on the client
+      setUser(null);
+      // Redirect to login page
+      window.location.href = '/login';
     }
   };
 
-  const logout = () => {
-    setUser(null);
-    // Clear both the user data and the authentication token from storage
-    localStorage.removeItem('currentUser');
-    localStorage.removeItem('authToken');
+  const contextValue = {
+    user,
+    isAuthenticated: !!user,
+    loading,
+    login,
+    logout,
+    register,
   };
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated: !!user, user, login, register, logout }}>
-      {children}
+    <AuthContext.Provider value={contextValue}>
+      {!loading && children}
     </AuthContext.Provider>
   );
 };
 
-export const useAuth = (): AuthContextType => {
+// Custom hook to use the auth context easily
+export const useAuth = () => {
   const context = useContext(AuthContext);
   if (context === undefined) {
     throw new Error('useAuth must be used within an AuthProvider');

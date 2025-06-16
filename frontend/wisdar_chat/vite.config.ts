@@ -18,6 +18,14 @@ export default defineConfig({
        // Your specific ngrok URL
       // You can add more allowed hosts here if needed
     ],
+    proxy: {
+      // This proxies any request starting with /api to your backend server
+      '/api': {
+        target: 'https://moody-cameras-flow.loca.lt', // The address of your Flask backend
+        changeOrigin: true, // Recommended for virtual hosts
+        secure: false, // Set to true if your backend is on HTTPS
+      },
+    },
     // If you have an HMR (Hot Module Replacement) configuration, ensure it's compatible
     // For example, if ngrok uses wss, you might need:
     // hmr: {
