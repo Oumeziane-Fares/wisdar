@@ -8,38 +8,47 @@ const API_BASE_URL = '/api';
  * authentication credentials (cookies) and handles common error scenarios,
  * like redirecting to login on a 401 Unauthorized response.
  *
- * @param url The API endpoint to call (e.g., '/auth/me').
+ * @param endpoint The API endpoint to call (e.g., '/auth/me').
  * @param options The standard `RequestInit` options for the fetch call.
  * @returns A promise that resolves to the `Response` object.
  */
-export const authFetch = async (url: string, options: RequestInit = {}): Promise<Response> => {
-    // Default options for every authenticated request
-    const defaultOptions: RequestInit = {
-        ...options,
-        // This is crucial: it tells the browser to send cookies with the request
-        credentials: 'include',
-        headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            ...options.headers,
-        },
-    };
+export async function authFetch(endpoint: string, options: RequestInit = {}): Promise<Response> {
+  // CORRECTED: Construct a full, absolute URL relative to the window's origin.
+  // This ensures that the request is always correctly routed through Vite's proxy.
+  const url = new URL(`${API_BASE_URL}${endpoint}`, window.location.origin).toString();
 
-    const response = await fetch(`${API_BASE_URL}${url}`, defaultOptions);
+  // Define default headers
+  const defaultHeaders: HeadersInit = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+    ...options.headers,
+  };
 
-    // If the server returns 401, it means the session is invalid. Redirect to login.
-    if (response.status === 401) {
-        // Prevent infinite loops if the login page itself causes a 401
-        if (!window.location.pathname.startsWith('/login')) {
-            console.error('Unauthorized access. Redirecting to login.');
-            window.location.href = '/login';
-        }
-        // Throw an error to stop further execution in the calling function
-        throw new Error('Unauthorized');
+  // Merge default options with any provided options
+  const config: RequestInit = {
+    ...options,
+    headers: defaultHeaders,
+    // This is the most critical part for cookie-based auth
+    credentials: 'include',
+  };
+
+  const response = await fetch(url, config);
+
+  // RE-ADDED: This is a critical piece of auth handling. If the server returns a 401,
+  // it means the user's session has expired, and they should be sent to the login page.
+  if (response.status === 401) {
+    // Prevent infinite redirect loops if the login page itself is unauthorized
+    if (!window.location.pathname.startsWith('/login')) {
+      console.error('Unauthorized access. Redirecting to login.');
+      window.location.href = '/login';
     }
+    // Throw an error to stop further execution in the calling function
+    throw new Error('Unauthorized');
+  }
 
-    return response;
-};
+  return response;
+}
+
 
 /**
  * Uploads an audio blob to the backend for transcription.
@@ -51,9 +60,12 @@ export const fetchAudioBlob = async (audioBlob: Blob): Promise<{ transcription: 
     const formData = new FormData();
     formData.append('file', audioBlob, 'recording.webm'); // filename is arbitrary but good practice
 
+    // CORRECTED: Use the same robust URL construction for consistency.
+    const url = new URL(`${API_BASE_URL}/chat/transcribe`, window.location.origin).toString();
+
     // We don't use `authFetch` here because sending multipart/form-data
     // requires the browser to set the Content-Type header with the boundary.
-    const response = await fetch(`${API_BASE_URL}/chat/transcribe`, { // Assuming this is the correct backend endpoint
+    const response = await fetch(url, {
         method: 'POST',
         body: formData,
         credentials: 'include', // Important for sending the auth cookie
@@ -74,7 +86,7 @@ export const fetchAudioBlob = async (audioBlob: Blob): Promise<{ transcription: 
  * Fetches all conversations for the current user.
  */
 export const getConversations = async (): Promise<Conversation[]> => {
-    const response = await authFetch('/chat/conversations');
+    const response = await authFetch('s/chat/conversation');
     if (!response.ok) throw new Error('Failed to fetch conversations');
     return response.json();
 };
@@ -99,7 +111,8 @@ export const streamChatResponse = (
         onError?: (error: Event) => void;
     }
 ): EventSource => {
-    const url = new URL(`${window.location.origin}${API_BASE_URL}/chat/stream`);
+    // This function was already using the correct URL construction. No changes needed.
+    const url = new URL(`${API_BASE_URL}/chat/stream`, window.location.origin);
     url.searchParams.append('conversation_id', String(conversationId));
     url.searchParams.append('content', content);
     url.searchParams.append('model_id', modelId);

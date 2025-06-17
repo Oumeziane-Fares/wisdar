@@ -11,7 +11,7 @@ from flask_jwt_extended import (
 from authlib.integrations.flask_client import OAuth
 
 # This blueprint handles authentication and user management routes.
-auth_bp = Blueprint('auth', __name__)
+auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 oauth = OAuth()
 
 def init_oauth(app):

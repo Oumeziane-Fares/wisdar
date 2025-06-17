@@ -44,12 +44,10 @@ def convert_audio_to_wav(file_path: str, original_filename: str) -> str:
     try:
         current_app.logger.info(f"Converting audio: {original_filename}")
         
-        # Load and convert audio
         y, sr = librosa.load(file_path, sr=16000, mono=True)
         output_path = os.path.splitext(file_path)[0] + ".wav"
         sf.write(output_path, y, sr)
         
-        # Clean up original file if different format
         if file_path != output_path:
             os.remove(file_path)
             
@@ -63,18 +61,15 @@ def convert_audio_to_wav(file_path: str, original_filename: str) -> str:
 
 def start_speechmatics_job(file_path: str, api_key: str) -> str:
     """Start transcription job with Speechmatics API"""
-    # Get base URL from environment
     base_url = current_app.config.get('PUBLIC_SERVER_URL')
     if not base_url:
         current_app.logger.error("PUBLIC_SERVER_URL not configured")
         raise ValueError("Server URL not configured")
     
-    # Build webhook URL
     webhook_url = f"{base_url}/api/webhooks/speechmatics"
     url = "https://asr.api.speechmatics.com/v2/jobs"
     headers = {"Authorization": f"Bearer {api_key}"}
     
-    # Configure job parameters
     config = {
         "type": "transcription",
         "transcription_config": {
@@ -85,7 +80,6 @@ def start_speechmatics_job(file_path: str, api_key: str) -> str:
         "notification_config": [{"url": webhook_url}]
     }
     
-    # Prepare request data
     data = {'config': json.dumps(config)}
     files = {'data_file': open(file_path, 'rb')}
     
@@ -161,13 +155,11 @@ def initiate_conversation():
     ai_model_id = data.get('ai_model_id')
     attachment_file = request.files.get('attachment')
 
-    # Validate input
     if not ai_model_id:
         return jsonify({"message": "AI Model ID is required"}), 400
     if not content and not attachment_file:
         return jsonify({"message": "Content or attachment required"}), 400
 
-    # Create new conversation
     title = (content[:30] + '...') if len(content) > 30 else (content or "New Conversation")
     new_conversation = Conversation(
         title=title, 
@@ -175,9 +167,8 @@ def initiate_conversation():
         ai_model_id=ai_model_id
     )
     db.session.add(new_conversation)
-    db.session.flush()  # Get ID without committing
+    db.session.flush()
 
-    # Create user message
     user_message = Message(
         content=content, 
         role='user', 
@@ -185,28 +176,23 @@ def initiate_conversation():
     )
     db.session.add(user_message)
 
-    # Handle attachment if present
     if attachment_file:
         try:
-            # Validate and process file
             if not allowed_file(attachment_file.filename):
                 return jsonify({"message": "Invalid file type"}), 400
                 
             file_path, _ = save_file_locally(attachment_file)
             wav_file_path = convert_audio_to_wav(file_path, attachment_file.filename)
             
-            # Generate storage URL
             unique_filename = os.path.basename(wav_file_path)
             storage_url = url_for('chat.get_uploaded_file', filename=unique_filename, _external=False)
             
-            # Start transcription
             api_key = current_app.config.get('SPEECHMATICS_API_KEY')
             if not api_key:
                 return jsonify({"message": "Speechmatics not configured"}), 500
                 
             job_id = start_speechmatics_job(wav_file_path, api_key)
             
-            # Create attachment
             new_attachment = Attachment(
                 file_name=secure_filename(attachment_file.filename),
                 file_type="audio/wav",
@@ -216,7 +202,6 @@ def initiate_conversation():
             )
             user_message.attachment = new_attachment
             
-            # Set content placeholder
             if not user_message.content:
                 user_message.content = "Voice message"
                 
@@ -225,41 +210,34 @@ def initiate_conversation():
             db.session.rollback()
             return jsonify({"message": "Error processing attachment"}), 500
             
-        db.session.commit()
-        return jsonify({
-            "new_conversation": new_conversation.to_dict(),
-            "user_message": user_message.to_dict(request.host_url)
-        }), 201
-    
-    # For text-only conversations
     db.session.commit()
     
-    # Trigger AI response in background
-    generate_text_response.delay(new_conversation.id, request.url_root)
-    
+    # Trigger AI response if it's a text-only message
+    if not attachment_file:
+        generate_text_response.delay(new_conversation.id, request.url_root)
+
     return jsonify({
         "new_conversation": new_conversation.to_dict(),
         "user_message": user_message.to_dict(request.host_url)
     }), 201
 
-@chat_bp.route('/messages', methods=['POST'])
+# --- CORRECTED ROUTE ---
+# This route now correctly matches the frontend's request URL pattern.
+@chat_bp.route('/conversations/<int:conversation_id>/messages', methods=['POST'])
 @jwt_required()
-def post_message():
+def post_message(conversation_id):
     """Add a message to an existing conversation"""
     current_user_id = get_jwt_identity()
-    data = request.form
-    conversation_id = data.get('conversation_id')
-    content = data.get('content', '')
-    attachment_file = request.files.get('attachment')
-
-    # Validate input
-    if not conversation_id:
-        return jsonify({"message": "Conversation ID required"}), 400
-        
+    
+    # Verify the user owns the conversation
     conversation = Conversation.query.filter_by(
         id=conversation_id, 
         user_id=current_user_id
     ).first_or_404()
+
+    data = request.form
+    content = data.get('content', '')
+    attachment_file = request.files.get('attachment')
 
     # Create user message
     user_message = Message(
@@ -272,25 +250,21 @@ def post_message():
     # Handle attachment if present
     if attachment_file:
         try:
-            # Validate and process file
             if not allowed_file(attachment_file.filename):
                 return jsonify({"message": "Invalid file type"}), 400
                 
             file_path, _ = save_file_locally(attachment_file)
             wav_file_path = convert_audio_to_wav(file_path, attachment_file.filename)
             
-            # Generate storage URL
             unique_filename = os.path.basename(wav_file_path)
             storage_url = url_for('chat.get_uploaded_file', filename=unique_filename, _external=False)
             
-            # Start transcription
             api_key = current_app.config.get('SPEECHMATICS_API_KEY')
             if not api_key:
                 return jsonify({"message": "Speechmatics not configured"}), 500
                 
             job_id = start_speechmatics_job(wav_file_path, api_key)
             
-            # Create attachment
             new_attachment = Attachment(
                 file_name=secure_filename(attachment_file.filename),
                 file_type="audio/wav",
@@ -300,7 +274,6 @@ def post_message():
             )
             user_message.attachment = new_attachment
             
-            # Set content placeholder
             if not user_message.content:
                 user_message.content = "Voice message"
                 
@@ -309,20 +282,15 @@ def post_message():
             db.session.rollback()
             return jsonify({"message": "Error processing attachment"}), 500
             
-        db.session.commit()
-        return jsonify({
-            "user_message": user_message.to_dict(request.host_url)
-        }), 200
-    
-    # For text-only messages
     db.session.commit()
-    
-    # Trigger AI response in background
-    generate_text_response.delay(conversation.id, request.url_root)
+
+    # Trigger AI response if it's a text-only message
+    if not attachment_file:
+        generate_text_response.delay(conversation.id, request.url_root)
     
     return jsonify({
         "user_message": user_message.to_dict(request.host_url)
-    }), 200
+    }), 201
 
 # ==============================================================================
 #  WEBHOOK ENDPOINT
@@ -334,16 +302,13 @@ def speechmatics_webhook():
     data = request.json
     current_app.logger.info(f"Speechmatics webhook received: {json.dumps(data, indent=2)}")
     
-    # Validate payload
-    if not data or not data.get('results'):
+    if not data or not data.get('job'):
         current_app.logger.warning("Invalid webhook payload")
         return jsonify({"status": "ignored", "reason": "invalid_payload"}), 200
     
-    # Extract job details
     job_id = data.get('job', {}).get('id', 'unknown')
     
     try:
-        # Queue processing task
         process_speechmatics_transcription.delay(data, request.url_root)
         current_app.logger.info(f"Queued processing for job: {job_id}")
         return jsonify({"status": "queued"}), 202
@@ -354,3 +319,4 @@ def speechmatics_webhook():
             "status": "error",
             "message": str(e)
         }), 500
+

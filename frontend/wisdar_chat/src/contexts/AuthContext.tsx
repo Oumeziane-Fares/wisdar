@@ -1,9 +1,9 @@
 import React, { createContext, useState, useEffect, useContext, ReactNode } from 'react';
-import { authFetch } from '@/lib/api'; // Corrected import path
+import { authFetch } from '@/lib/api'; // We will use this for all auth requests
 
 // Define the shape of the User object
 interface User {
-  id: string;
+  id: string; // Changed to string to match JWT identity
   full_name: string;
   email: string;
 }
@@ -12,7 +12,7 @@ interface User {
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
-  loading: boolean;
+  isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   register: (fullName: string, email: string, password: string) => Promise<void>;
@@ -28,27 +28,24 @@ interface AuthProviderProps {
 
 export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
 
   // This effect runs on initial app load to check if a user session exists
   useEffect(() => {
     const checkUserStatus = async () => {
       try {
-        // We make a request to a protected endpoint.
-        // If the cookie is valid, this will succeed and return user data.
-        const response = await authFetch('/auth/me'); // Using the new /me route
+        const response = await authFetch('/auth/me'); // Correctly uses authFetch
         if (response.ok) {
           const userData = await response.json();
           setUser(userData);
         } else {
-          // This case handles when the cookie is invalid or expired
           setUser(null);
         }
       } catch (error) {
         console.log('No active session found or server is down.');
         setUser(null);
       } finally {
-        setLoading(false);
+        setIsLoading(false);
       }
     };
 
@@ -56,18 +53,16 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   }, []);
 
   const login = async (email: string, password: string) => {
-    // Note: The /api prefix is handled by the Vite proxy
-    const response = await fetch('/api/auth/login', {
+    // CORRECTED: Use authFetch to ensure credentials are sent
+    const response = await authFetch('/auth/login', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
     });
 
     const data = await response.json();
 
     if (response.ok) {
-      // The auth cookie is set by the server automatically.
-      // The response now contains the user object.
+      // The user object is nested in the response from your backend
       setUser(data.user);
     } else {
       throw new Error(data.message || 'Login failed');
@@ -75,9 +70,9 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   };
   
   const register = async (fullName: string, email: string, password: string) => {
-    const response = await fetch('/api/auth/register', {
+    // CORRECTED: Use authFetch for consistency
+    const response = await authFetch('/auth/register', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ full_name: fullName, email, password }),
     });
 
@@ -86,27 +81,22 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     if (!response.ok) {
         throw new Error(data.message || 'Registration failed');
     }
-    // After registration, you can prompt the user to log in.
   };
 
   const logout = async () => {
     try {
-      // Call the backend logout endpoint to clear the http-only cookie
       await authFetch('/auth/logout', { method: 'POST' });
     } catch (error) {
       console.error("Logout request failed, clearing client-side state anyway.", error);
     } finally {
-      // Clear user state on the client
       setUser(null);
-      // Redirect to login page
-      window.location.href = '/login';
     }
   };
 
   const contextValue = {
     user,
     isAuthenticated: !!user,
-    loading,
+    isLoading, // Changed from 'loading' to 'isLoading' to match previous version
     login,
     logout,
     register,
@@ -114,7 +104,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
   return (
     <AuthContext.Provider value={contextValue}>
-      {!loading && children}
+      {!isLoading && children}
     </AuthContext.Provider>
   );
 };

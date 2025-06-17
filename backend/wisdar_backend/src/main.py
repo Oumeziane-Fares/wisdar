@@ -11,23 +11,27 @@ load_dotenv()
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 # --- Flask App Imports ---
-from flask import Flask, send_from_directory
+from flask import Flask, send_from_directory, jsonify, request
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
-from flask_sse import sse  # Import SSE directly
+from flask_sse import sse
 
 # --- Local Module Imports ---
 from src.database import db
 from src.models.user import User
+# CORRECTED: Changed import to match the class name 'AIModel'
 from src.models.ai_model import AIModel
 from src.routes.user import auth_bp, init_oauth
 from src.routes.chat import chat_bp
+from src.routes.models import models_bp
+from src.routes.stream import stream_bp 
 from src.celery_app import init_celery
 
 # ==============================================================================
 # 1. FLASK APPLICATION CREATION
 # ==============================================================================
-app = Flask(__name__, static_folder=os.path.join(os.path.dirname(__file__), 'static'))
+# Correctly pointing to the static folder for the built frontend
+app = Flask(__name__, static_folder='static', static_url_path='')
 
 # ==============================================================================
 # 2. APP CONFIGURATION
@@ -35,8 +39,8 @@ app = Flask(__name__, static_folder=os.path.join(os.path.dirname(__file__), 'sta
 # --- Redis Config ---
 app.config["REDIS_URL"] = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
-# JWT configuration for SSE compatibility
-app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'your-secret-key')
+# JWT configuration
+app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'your-default-secret-key')
 app.config['JSON_AS_ASCII'] = False
 db_uri = (
     f"mysql+pymysql://{os.getenv('DB_USERNAME')}:{os.getenv('DB_PASSWORD')}"
@@ -48,12 +52,14 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = os.path.join(app.static_folder, 'uploads')
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'your-super-secret-jwt-key')
-app.config["JWT_TOKEN_LOCATION"] = ["cookies"]  # Changed to cookies for SSE compatibility
+app.config["JWT_TOKEN_LOCATION"] = ["cookies"]
 app.config["JWT_COOKIE_SECURE"] = not app.debug
-app.config["JWT_COOKIE_CSRF_PROTECT"] = False  # Disable CSRF for SSE
+app.config["JWT_COOKIE_CSRF_PROTECT"] = False
 app.config["JWT_COOKIE_SAMESITE"] = "Lax"
 app.config["SPEECHMATICS_API_KEY"] = os.getenv("SPEECHMATICS_API_KEY")
 app.config["PUBLIC_SERVER_URL"] = os.getenv("PUBLIC_SERVER_URL", "http://localhost:5000")
+app.config["JWT_COOKIE_DOMAIN"] = os.getenv('COOKIE_DOMAIN', None)
+app.config["JWT_ACCESS_COOKIE_PATH"] = "/"
 
 # RSA Key Configuration
 rsa_key_from_env = os.getenv("RSA_PRIVATE_KEY")
@@ -69,14 +75,9 @@ app.redis_client = redis.from_url(app.config["REDIS_URL"])
 # CORS Configuration
 CORS(
     app,
-    origins=[r"http://localhost:5173", r"https://.*\.loca\.lt", r"http://192\.168\..*"],
-    supports_credentials=True  # Allow credentials for SSE
+    resources={r"/api/*": {"origins": "*"}}, # Allowing all origins for now, can be restricted later
+    supports_credentials=True
 )
-
-# NGROK Configuration
-NGROK_URL = os.getenv('NGROK_URL')
-if NGROK_URL:
-    app.config['SERVER_NAME'] = NGROK_URL
 
 # Logging Configuration
 if not app.debug:
@@ -93,7 +94,7 @@ if not app.debug:
 db.init_app(app)
 jwt = JWTManager(app)
 init_oauth(app) 
-init_celery(app)  # Initialize Celery with app context
+init_celery(app)
 
 # ==============================================================================
 # 4. JWT USER LOOKUP
@@ -106,18 +107,20 @@ def user_lookup_callback(_jwt_header, jwt_data):
 # ==============================================================================
 # 5. REGISTER BLUEPRINTS
 # ==============================================================================
-app.register_blueprint(auth_bp, url_prefix='/api')
-app.register_blueprint(chat_bp, url_prefix='/api')
-app.register_blueprint(sse, url_prefix='/api/stream')  # Corrected SSE endpoint
+app.register_blueprint(auth_bp, url_prefix='/api/auth')
+app.register_blueprint(chat_bp, url_prefix='/api/chat')
+app.register_blueprint(models_bp, url_prefix='/api/models')
+# CORRECTED: Registered your custom stream_bp instead of the raw sse object
+app.register_blueprint(stream_bp, url_prefix='/api/stream')
 
 # ==============================================================================
 # 6. SETUP DATABASE AND INITIAL DATA
 # ==============================================================================
 with app.app_context():
     db.create_all()
+    # CORRECTED: Changed to use the correct class name 'AIModel'
     if AIModel.query.count() == 0:
         print("Seeding database with initial AI models...")
-        # Example seeding - replace with your actual models
         models = [
             {"id": "gemini-1.5-pro", "display_name": "Gemini 1.5 Pro"},
             {"id": "gpt-4-turbo", "display_name": "GPT-4 Turbo"},
@@ -125,7 +128,9 @@ with app.app_context():
         ]
         
         for model_data in models:
+            # CORRECTED: Changed to use the correct class name 'AIModel'
             if not AIModel.query.get(model_data["id"]):
+                # CORRECTED: Changed to use the correct class name 'AIModel'
                 model = AIModel(
                     id=model_data["id"],
                     display_name=model_data["display_name"]
@@ -136,23 +141,29 @@ with app.app_context():
         print("AI models seeded successfully.")
 
 # ==============================================================================
-# 7. SERVE FRONTEND
+# 7. SERVE FRONTEND (SPA Handling)
 # ==============================================================================
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
-def serve(path):
-    static_folder_path = app.static_folder
-    if static_folder_path is None:
-        return "Static folder not configured", 404
+def serve_spa(path):
+    """
+    Serves the static files for the SPA, including the main index.html for
+    client-side routing. This route is designed to ignore API calls.
+    """
+    if path.startswith("api/"):
+        return jsonify(error=f"API endpoint not found for path: {path}"), 404
         
-    full_path = os.path.join(static_folder_path, path)
-    
-    if path != "" and os.path.exists(full_path) and not os.path.isdir(full_path):
-        return send_from_directory(static_folder_path, path)
+    if path != "" and os.path.exists(os.path.join(app.static_folder, path)):
+        return send_from_directory(app.static_folder, path)
     else:
-        index_path = os.path.join(static_folder_path, 'index.html')
-        if os.path.exists(index_path):
-            return send_from_directory(static_folder_path, 'index.html')
-        else:
-            return "index.html not found", 404
+        return send_from_directory(app.static_folder, 'index.html')
 
+@app.errorhandler(404)
+def resource_not_found(e):
+    """
+    Catches all 404 errors. This is a safety net.
+    """
+    if request.path.startswith('/api/'):
+        return jsonify(error="The requested API endpoint was not found."), 404
+    
+    return send_from_directory(app.static_folder, 'index.html')

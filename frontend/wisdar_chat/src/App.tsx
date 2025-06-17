@@ -25,11 +25,9 @@ function App() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   
-  // Ref to track SSE connection state
   const sseRef = useRef<EventSource | null>(null);
   const reconnectAttempts = useRef(0);
 
-  // This function for loading historical data remains the same.
   const handleSelectConversation = useCallback(async (id: string | number) => {
     setConversations(prev => {
       const targetConversation = prev.find(c => c.id === id);
@@ -43,7 +41,8 @@ function App() {
 
     if (id !== 'new') {
       try {
-        const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/conversations/${id}/messages`);
+        // CORRECTED: Removed VITE_API_URL and used the correct relative path.
+        const response = await authFetch(`/chat/conversations/${id}/messages`);
         if (!response.ok) throw new Error('Failed to fetch messages.');
         const messagesData: Message[] = await response.json();
         
@@ -62,21 +61,18 @@ function App() {
     }
   }, []);
 
-  // ==============================================================================
-  //  SSE CONNECTION MANAGEMENT
-  // ==============================================================================
   useEffect(() => {
     if (!isAuthenticated) return;
     
     const setupSSEConnection = () => {
-      // Close any existing connection
       if (sseRef.current) {
         sseRef.current.close();
       }
       
-      // Create new SSE connection
+      // CORRECTED: Removed VITE_API_URL. EventSource works with a relative path.
+      // The Vite proxy will handle forwarding this to the backend.
       sseRef.current = new EventSource(
-        `${import.meta.env.VITE_API_URL}/api/stream/events`,
+        `/api/stream/events`,
         { withCredentials: true }
       );
       
@@ -84,15 +80,11 @@ function App() {
       
       eventSource.onopen = () => {
         console.log("SSE Connection Established");
-        reconnectAttempts.current = 0; // Reset reconnect attempts
+        reconnectAttempts.current = 0;
       };
 
-      // Ping handler to keep connection alive
-      eventSource.addEventListener('ping', () => {
-        // console.log("SSE Ping Received");
-      });
+      eventSource.addEventListener('ping', () => {});
 
-      // Transcription complete handler
       eventSource.addEventListener('transcription_complete', (event: MessageEvent) => {
         try {
           const eventData = JSON.parse(event.data);
@@ -101,14 +93,12 @@ function App() {
           setConversations(prev => prev.map(convo => {
             const userMessageIndex = convo.messages.findIndex(m => m.id === eventData.message_id);
             if (userMessageIndex !== -1) {
-              // Update user message with transcript
               const updatedUserMessage = {
                 ...convo.messages[userMessageIndex],
                 content: eventData.content,
                 status: 'complete' as MessageStatus
               };
 
-              // Find assistant placeholder and update to 'thinking'
               const assistantMessageIndex = convo.messages.findIndex(m => 
                 m.id === `assistant-${eventData.message_id}`
               );
@@ -132,7 +122,6 @@ function App() {
         }
       });
 
-      // Stream start handler
       eventSource.addEventListener('stream_start', (event: MessageEvent) => {
         try {
           const eventData = JSON.parse(event.data);
@@ -141,7 +130,6 @@ function App() {
           const newMessage: Message = eventData.message;
           setConversations(prev => prev.map(convo => {
             if (String(convo.id) === String(newMessage.conversation_id)) {
-              // Find and remove placeholder
               const placeholderIndex = convo.messages.findIndex(m => 
                 m.status === 'thinking' || m.status === 'transcribing'
               );
@@ -159,7 +147,6 @@ function App() {
                 };
               }
               
-              // If no placeholder found, just add the new message
               return {
                 ...convo,
                 messages: [...convo.messages, {
@@ -175,12 +162,9 @@ function App() {
         }
       });
 
-      // Stream chunk handler
       eventSource.addEventListener('stream_chunk', (event: MessageEvent) => {
         try {
           const eventData = JSON.parse(event.data);
-          console.log("stream_chunk event:", eventData);
-          
           setConversations(prev => prev.map(convo => {
             const messageIndex = convo.messages.findIndex(m => 
               m.id === eventData.message_id
@@ -201,7 +185,6 @@ function App() {
         }
       });
 
-      // Stream end handler
       eventSource.addEventListener('stream_end', (event: MessageEvent) => {
         try {
           const eventData = JSON.parse(event.data);
@@ -229,8 +212,6 @@ function App() {
 
       eventSource.onerror = (err) => {
         console.error("SSE Connection Error:", err);
-        
-        // Close and attempt reconnect
         eventSource.close();
         
         if (reconnectAttempts.current < 5) {
@@ -243,14 +224,12 @@ function App() {
           }, delay);
         } else {
           console.error("Max SSE reconnect attempts reached");
-          // Handle permanent failure (e.g., show error to user)
         }
       };
     };
 
     setupSSEConnection();
     
-    // Cleanup on unmount or auth change
     return () => {
       if (sseRef.current) {
         sseRef.current.close();
@@ -259,7 +238,6 @@ function App() {
     };
   }, [isAuthenticated]);
 
-  // Effect for setting up user data
   useEffect(() => {
     const setupUserData = async () => {
       setIsLoading(true);
@@ -271,7 +249,8 @@ function App() {
         setAvailableModels(userModels);
 
         try {
-          const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/conversations`);
+          // CORRECTED: Removed VITE_API_URL and used the correct relative path.
+          const response = await authFetch('/chat/conversations');
           if (!response.ok) throw new Error('Failed to fetch conversations');
           const dataFromBackend = await response.json();
           
@@ -345,7 +324,6 @@ function App() {
     const hasAttachment = attachments && attachments.length > 0;
     const userMessageId = `temp-user-${Date.now()}`;
 
-    // 1. Optimistic UI update for user's message
     const optimisticUserMessage: Message = {
       id: userMessageId,
       content: content,
@@ -359,7 +337,6 @@ function App() {
       } : undefined
     };
 
-    // 2. Optimistic placeholder for assistant
     const optimisticAssistantMessage: Message = {
       id: `assistant-${userMessageId}`,
       content: '',
@@ -375,16 +352,17 @@ function App() {
       } : c
     ));
 
-    // 3. Prepare and send data to backend
     const isNewConversation = activeConversation.id === 'new';
-    const endpoint = isNewConversation ? '/api/conversations/initiate' : '/api/messages';
+    // CORRECTED: Use a consistent endpoint pattern
+    const endpoint = isNewConversation 
+      ? '/chat/conversations/initiate' 
+      : `/chat/conversations/${activeConversation.id}/messages`;
+    
     const formData = new FormData();
     formData.append('content', content);
 
     if (isNewConversation) {
         formData.append('ai_model_id', activeConversation.aiModelId);
-    } else {
-        formData.append('conversation_id', String(activeConversation.id));
     }
     
     if (hasAttachment) {
@@ -392,20 +370,22 @@ function App() {
     }
 
     try {
-        const response = await authFetch(`${import.meta.env.VITE_API_URL}${endpoint}`, {
+        // CORRECTED: Call fetch directly for multipart/form-data.
+        // Bypassing authFetch here because it's configured for JSON.
+        const response = await fetch(`/api${endpoint}`, {
             method: 'POST',
-            body: formData
+            body: formData,
+            credentials: 'include', // Don't forget credentials for cookies
         });
 
         if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.message || 'API request failed.');
+            const errorData = await response.json().catch(() => ({ message: 'API request failed.' }));
+            throw new Error(errorData.message);
         }
 
         const { new_conversation, user_message } = await response.json();
 
         if (isNewConversation) {
-            // New conversation created - replace temporary one
             const finalNewConversation: Conversation = {
                 id: new_conversation.id,
                 title: new_conversation.title,
@@ -420,7 +400,6 @@ function App() {
                 ...prev.filter(c => c.id !== 'new').map(c => ({ ...c, active: false }))
             ]);
         } else {
-            // Update existing conversation with final user message
             setConversations(prev => prev.map(c => {
                 if (c.id === activeConversation.id) {
                     const updatedMessages = c.messages.map(m => 
@@ -436,7 +415,6 @@ function App() {
         }
     } catch (error) {
         console.error("Error sending message:", error);
-        // On error, remove optimistic messages
         setConversations(prev => prev.map(c => 
             c.id === activeConversation.id ? { 
                 ...c, 
@@ -461,10 +439,8 @@ function App() {
     }
   };
 
-  // Logout handler
   const handleLogout = () => {
     logout();
-    // Reset conversations on logout
     setConversations([]);
     setAvailableModels([]);
     setGlobalSelectedAiModel('');
