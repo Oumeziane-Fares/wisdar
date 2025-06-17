@@ -1,5 +1,10 @@
 # celery_worker.py
+# At the top of celery_worker.py
+from gevent import monkey
+monkey.patch_all()
 
+import grpc.experimental.gevent as grpc_gevent
+grpc_gevent.init_gevent()
 # Import the main Flask app instance from where it's created
 from src.main import app 
 

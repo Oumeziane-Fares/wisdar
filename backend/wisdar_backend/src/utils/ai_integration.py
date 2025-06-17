@@ -31,9 +31,13 @@ def _get_gemini_response(api_key: str, model_id: str, messages: list[dict]):
             history.append({'role': role, 'parts': [msg['content']]})
         
         # Start streaming chat
+        request_options = {"timeout": 180}  
         chat = model.start_chat(history=history[:-1])
-        response = chat.send_message(history[-1]['parts'], stream=True)
-        
+        response = chat.send_message(
+            history[-1]['parts'], 
+            stream=True,
+            request_options=request_options # Add the new options here
+        )        
         # Yield text chunks
         for chunk in response:
             if chunk.text:

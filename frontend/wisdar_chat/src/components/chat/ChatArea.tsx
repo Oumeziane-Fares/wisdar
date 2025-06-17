@@ -6,7 +6,28 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { AiModel, Message } from '../../types'; // Using shared types
+import { AiModel, Message } from '../../types';
+
+// --- Date Formatting Helper Function ---
+const formatDateSeparator = (date: Date, t: any, i18n: any) => {
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  if (date.toDateString() === today.toDateString()) {
+    return t('dateSeparatorToday', 'Today');
+  }
+  if (date.toDateString() === yesterday.toDateString()) {
+    return t('dateSeparatorYesterday', 'Yesterday');
+  }
+  return date.toLocaleDateString(i18n.language, {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+};
+// ------------------------------------
 
 interface ChatAreaProps {
   conversationTitle: string;
@@ -25,23 +46,29 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   selectedModel,
   onSelectModel
 }) => {
-  const { t } = useTranslation(); 
+  const { t, i18n } = useTranslation();
   const [inputValue, setInputValue] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null); 
   const messagesEndRef = useRef<HTMLDivElement>(null); 
   const [isRecording, setIsRecording] = useState(false);
-  
-  // Use a ref to store audio chunks to avoid state closure issues.
   const audioChunksRef = useRef<Blob[]>([]);
-  
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioStreamRef = useRef<MediaStream | null>(null); 
+
+  const [initialMessageCount, setInitialMessageCount] = useState(0);
+  const [hasInitialLoadCompleted, setHasInitialLoadCompleted] = useState(false);
+
+  useEffect(() => {
+    if (messages.length > 0 && !hasInitialLoadCompleted) {
+      setInitialMessageCount(messages.length);
+      setHasInitialLoadCompleted(true);
+    }
+  }, [messages, hasInitialLoadCompleted]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Cleanup function to stop streams and recorders on component unmount
   useEffect(() => {
     return () => {
       if (audioStreamRef.current) {
@@ -93,18 +120,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       
       const recorder = mediaRecorderRef.current;
       
-      // Reset the ref's current value before starting.
       audioChunksRef.current = []; 
 
       recorder.ondataavailable = (event) => {
         if(event.data.size > 0) {
-          // Push audio chunks directly into the ref.
           audioChunksRef.current.push(event.data);
         }
       };
 
       recorder.onstop = () => {
-        // Create the final audio Blob from the ref, which now contains all the data.
         const audioBlob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
         const fileExtension = recorder.mimeType?.split('/')[1]?.split(';')[0] || 'webm';
         const audioFile = new File([audioBlob], `recorded_voice_${Date.now()}.${fileExtension}`, { type: audioBlob.type });
@@ -164,16 +188,41 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         </div>
       </div>
       
-      <ScrollArea className="flex-1 p-4 space-y-4">
-        {messages.map((message) => (
-            <ChatMessage
-              key={String(message.id)}
-              content={message.content}
-              role={message.role}
-              timestamp={message.timestamp}
-              attachment={message.attachment}
-            />
-        ))}
+      <ScrollArea className="flex-1 p-4">
+        <div className="space-y-4">
+            {messages.map((message, index) => {
+                const currentMessageDate = new Date(message.timestamp);
+                const previousMessage = messages[index - 1];
+                const previousMessageDate = previousMessage ? new Date(previousMessage.timestamp) : null;
+
+                const showDateSeparator = !previousMessageDate || currentMessageDate.toDateString() !== previousMessageDate.toDateString();
+
+                return (
+                    <React.Fragment key={String(message.id)}>
+                        {showDateSeparator && (
+                            <div className="relative py-4">
+                                <div className="absolute inset-0 flex items-center" aria-hidden="true">
+                                    <div className="w-full border-t border-gray-200 dark:border-gray-700" />
+                                </div>
+                                <div className="relative flex justify-center">
+                                    <span className="bg-white dark:bg-gray-900 px-2 text-xs text-gray-500 dark:text-gray-400">
+                                        {formatDateSeparator(currentMessageDate, t, i18n)}
+                                    </span>
+                                </div>
+                            </div>
+                        )}
+                        <ChatMessage
+                            content={message.content}
+                            role={message.role}
+                            timestamp={message.timestamp}
+                            attachment={message.attachment}
+                            status={message.status}
+                            animate={hasInitialLoadCompleted && index >= initialMessageCount}
+                        />
+                    </React.Fragment>
+                );
+            })}
+        </div>
         <div ref={messagesEndRef} />
       </ScrollArea>
       

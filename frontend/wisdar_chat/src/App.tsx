@@ -318,11 +318,12 @@ function App() {
     setConversations(prev => [newTempConvo, ...prev.map(c => ({ ...c, active: false }))]);
   };
   
-  const handleSendMessage = async (content: string, attachments?: File[]) => {
+const handleSendMessage = async (content: string, attachments?: File[]) => {
     if (!activeConversation) return;
 
     const hasAttachment = attachments && attachments.length > 0;
     const userMessageId = `temp-user-${Date.now()}`;
+    const assistantMessageId = `assistant-${userMessageId}`;
 
     const optimisticUserMessage: Message = {
       id: userMessageId,
@@ -338,7 +339,7 @@ function App() {
     };
 
     const optimisticAssistantMessage: Message = {
-      id: `assistant-${userMessageId}`,
+      id: assistantMessageId,
       content: '',
       role: 'assistant',
       timestamp: new Date().toISOString(),
@@ -353,7 +354,6 @@ function App() {
     ));
 
     const isNewConversation = activeConversation.id === 'new';
-    // CORRECTED: Use a consistent endpoint pattern
     const endpoint = isNewConversation 
       ? '/chat/conversations/initiate' 
       : `/chat/conversations/${activeConversation.id}/messages`;
@@ -370,60 +370,77 @@ function App() {
     }
 
     try {
-        // CORRECTED: Call fetch directly for multipart/form-data.
-        // Bypassing authFetch here because it's configured for JSON.
-        const response = await fetch(`/api${endpoint}`, {
-            method: 'POST',
-            body: formData,
-            credentials: 'include', // Don't forget credentials for cookies
-        });
+      const response = await fetch(`/api${endpoint}`, {
+          method: 'POST',
+          body: formData,
+          credentials: 'include',
+      });
 
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({ message: 'API request failed.' }));
-            throw new Error(errorData.message);
-        }
+      if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ message: 'API request failed.' }));
+          throw new Error(errorData.message);
+      }
 
-        const { new_conversation, user_message } = await response.json();
+      const { new_conversation, user_message } = await response.json();
 
-        if (isNewConversation) {
+      // --- Start of Corrected Logic ---
+      if (isNewConversation) {
+        setConversations(prev => {
+            const tempConvo = prev.find(c => c.id === 'new');
+            const optimisticMessages = tempConvo ? tempConvo.messages : [];
+            
+            // Create a new, synchronized message list by replacing the temp user message
+            // with the real one from the server.
+            const finalMessages = optimisticMessages.map(m => {
+                if (m.id === userMessageId) {
+                    return { ...user_message, status: 'complete' as MessageStatus };
+                }
+                // Also, update the assistant placeholder's ID to be based on the REAL user_message.id.
+                // This is the crucial step so that future SSE events can find it.
+                if (m.id === assistantMessageId) {
+                    return { ...m, id: `assistant-${user_message.id}` };
+                }
+                return m;
+            });
+
             const finalNewConversation: Conversation = {
                 id: new_conversation.id,
                 title: new_conversation.title,
                 created_at: new_conversation.created_at,
                 aiModelId: new_conversation.ai_model_id,
-                messages: conversations.find(c => c.id === 'new')?.messages || [],
+                messages: finalMessages, // Use the updated, synchronized list
                 active: true,
             };
 
-            setConversations(prev => [
+            return [
                 finalNewConversation,
                 ...prev.filter(c => c.id !== 'new').map(c => ({ ...c, active: false }))
-            ]);
-        } else {
-            setConversations(prev => prev.map(c => {
-                if (c.id === activeConversation.id) {
-                    const updatedMessages = c.messages.map(m => 
-                        m.id === optimisticUserMessage.id ? { 
-                            ...user_message, 
-                            status: 'complete' as MessageStatus 
-                        } : m
-                    );
-                    return { ...c, messages: updatedMessages };
-                }
-                return c;
-            }));
-        }
+            ];
+        });
+      } else {
+        // This logic handles updating the message ID in an existing conversation
+        setConversations(prev => prev.map(c => {
+          if (c.id === activeConversation.id) {
+            const updatedMessages = c.messages.map(m => 
+              m.id === userMessageId ? { ...user_message, status: 'complete' as MessageStatus } : m
+            );
+            return { ...c, messages: updatedMessages };
+          }
+          return c;
+        }));
+      }
+      // --- End of Corrected Logic ---
     } catch (error) {
-        console.error("Error sending message:", error);
-        setConversations(prev => prev.map(c => 
-            c.id === activeConversation.id ? { 
-                ...c, 
-                messages: c.messages.filter(m => 
-                    m.id !== optimisticUserMessage.id && 
-                    m.id !== optimisticAssistantMessage.id
-                ) 
-            } : c
-        ));
+      console.error("Error sending message:", error);
+      setConversations(prev => prev.map(c => 
+        c.id === activeConversation.id ? { 
+          ...c, 
+          messages: c.messages.filter(m => 
+            m.id !== userMessageId && 
+            m.id !== assistantMessageId
+          ) 
+        } : c
+      ));
     }
   };
 
