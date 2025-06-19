@@ -210,6 +210,23 @@ function App() {
           console.error("Error handling stream_end:", error);
         }
       });
+      // --- MODIFICATION START ---
+      // 2. Add a specific event listener for 'task_failed'
+      eventSource.addEventListener('task_failed', (event) => {
+        try {
+          // The event data from the backend is a JSON string.
+          const eventData = JSON.parse(event.data);
+          
+          // Use the message from the event to show an error toast.
+          // The 'richColors' prop on your <Toaster /> will make this red.
+          toast.error(eventData.data.message);
+
+          console.error("Task Failed Event Received:", eventData);
+        } catch (e) {
+          console.error("Failed to parse task_failed event:", e);
+        }
+      });
+      // --- MODIFICATION END ---
 
       eventSource.onerror = (err) => {
         console.error("SSE Connection Error:", err);

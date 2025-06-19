@@ -217,7 +217,28 @@ def orchestrate_transcription(self, message_id):
                 message.status = MessageStatus.FAILED
                 attachment.transcription = "Transcription failed"
                 db.session.commit()
-                return
+
+                # 1. Define the correct channel format
+                channel = f'user-{user_id}'
+
+                # 2. Define the event name
+                event_name = 'task_failed'
+
+                # 3. Construct the data payload for the event
+                event_data = {
+                    'error': 'Audio Processing Failed',
+                    'message': 'We could not transcribe your audio at this time. Please try sending it again.',
+                    'message_id': message_id
+                }
+                
+                # 4. Call your existing SSE publishing function with the correct arguments
+                _publish_sse_event(
+                    channel=channel, 
+                    event_data=event_data, 
+                    event_name=event_name
+                )
+                # --- MODIFICATION END ---
+                return # End the task
 
         # --- STAGE 3: SUCCESS & NEXT STEP ---
         if transcript:

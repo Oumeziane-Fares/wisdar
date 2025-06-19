@@ -23,8 +23,7 @@ def start_speechmatics_job(file_path: str) -> str:
         "type": "transcription",
         "transcription_config": {
             "language": "auto",
-            "enable_entities": True,
-            "diarization": "speaker"
+            "enable_entities": True
         }
     }
     # --- END MODIFICATION ---
