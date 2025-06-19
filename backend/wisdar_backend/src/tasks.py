@@ -2,6 +2,7 @@
 
 import json
 import logging
+import time
 import requests
 
 # CORRECTED: Removed the stray 'f' character from the line below.
@@ -10,10 +11,12 @@ from .celery_app import celery_app
 from flask import current_app
 
 # --- CORRECTED: Added all necessary model and utility imports ---
+
 from .database import db
-from .models.chat import Conversation, Message, Attachment
+from .models.chat import Conversation, Message, Attachment,MessageStatus
 from .models.ai_model import AIModel
 from .utils.ai_integration import get_ai_response
+from .utils.transcription_utils import transcribe_audio_with_whisper,start_speechmatics_job 
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -156,4 +159,76 @@ def generate_text_response(self, conversation_id: int, request_url_root: str):
 
     except Exception as exc:
         logger.error(f"Celery 'generate_text_response' failed. Retrying... Error: {exc}", exc_info=True)
+        raise self.retry(exc=exc)
+
+# ==============================================================================
+# NEW: Orchestrator Task for Transcription
+# ==============================================================================
+@celery_app.task(bind=True, max_retries=3, default_retry_delay=90)
+def orchestrate_transcription(self, message_id):
+    try:
+        message = Message.query.get(message_id)
+        if not message or not message.attachment:
+            logger.error(f"Task aborted: No message or attachment for ID {message_id}")
+            return
+
+        attachment = message.attachment
+        audio_file_path = attachment.storage_url
+        transcript = None
+
+        # --- STAGE 1: TRY SPEECHMATICS ---
+        try:
+            logger.info(f"Stage 1: Attempting Speechmatics for message {message_id}")
+            job_id = start_speechmatics_job(audio_file_path)
+            attachment.speechmatics_job_id = job_id
+            db.session.commit()
+
+            api_key = current_app.config.get('SPEECHMATICS_API_KEY')
+            if not api_key:
+                raise ValueError("Speechmatics API Key not configured")
+                
+            result_url = f"https://asr.api.speechmatics.com/v2/jobs/{job_id}/transcript?format=txt"
+            headers = {"Authorization": f"Bearer {api_key}"}
+            
+            # Poll for up to 5 minutes
+            for _ in range(10): 
+                time.sleep(30)
+                response = requests.get(result_url, headers=headers)
+                if response.status_code == 200 and response.text:
+                    transcript = response.text.strip()
+                    logger.info(f"Speechmatics success for job {job_id}")
+                    break
+                elif response.status_code >= 400:
+                    logger.error(f"Speechmatics job {job_id} failed with status {response.status_code}: {response.text}")
+                    break
+
+            if not transcript:
+                 raise ValueError("Speechmatics transcription failed or timed out")
+
+        except Exception as e:
+            logger.warning(f"Stage 1 failed: Speechmatics error ({e}). Falling back to Whisper.")
+
+            # --- STAGE 2: FALLBACK TO WHISPER ---
+            try:
+                logger.info(f"Stage 2: Attempting Whisper for message {message_id}")
+                transcript = transcribe_audio_with_whisper(audio_file_path)
+            except Exception as whisper_e:
+                logger.error(f"FATAL: Both services failed. Whisper error: {whisper_e}")
+                message.status = MessageStatus.FAILED
+                attachment.transcription = "Transcription failed"
+                db.session.commit()
+                return
+
+        # --- STAGE 3: SUCCESS & NEXT STEP ---
+        if transcript:
+            logger.info(f"Transcription successful for message {message_id}. Triggering AI response.")
+            message.status = MessageStatus.COMPLETE
+            attachment.transcription = transcript
+            db.session.commit()
+
+            # Trigger AI response
+            generate_text_response.delay(message.conversation_id, "http://127.0.0.1:5000/")
+
+    except Exception as exc:
+        logger.error(f"orchestrate_transcription failed: {exc}", exc_info=True)
         raise self.retry(exc=exc)

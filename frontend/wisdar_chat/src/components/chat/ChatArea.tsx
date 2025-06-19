@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AiModel, Message } from '../../types';
+import { toast } from "sonner";
 
 // --- Date Formatting Helper Function ---
 const formatDateSeparator = (date: Date, t: any, i18n: any) => {
@@ -107,6 +108,9 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const startRecording = async () => {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       console.error(t('audioRecordingNotSupportedError'));
+      toast.error("Oops! Your browser doesn't allow audio recording.", {
+      description: "Your browser or device does not support audio recording. Please try using a different browser or update your current one.",
+    });
       return;
     }
     try {
@@ -146,6 +150,9 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       setIsRecording(true);
     } catch (err) {
       console.error("Error accessing microphone:", err);
+      toast.error("Microphone access denied.", {
+      description: "Please allow microphone access in your browser settings to record audio.",
+    });
     }
   };
 

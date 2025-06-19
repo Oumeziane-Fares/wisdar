@@ -1,10 +1,23 @@
 import os
 # MODIFIED: Import db from the new central database.py file
 from src.database import db
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Enum as SQLAlchemyEnum
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from flask import url_for
+import enum
+
+
+class MessageStatus(str, enum.Enum):
+    """
+    Defines the possible states of a message throughout its lifecycle.
+    Using (str, enum.Enum) allows us to use the string values directly.
+    """
+    COMPLETE = 'COMPLETE' 
+    PROCESSING = 'PROCESSING'     # Initial state when created
+    TRANSCRIBING = 'TRANSCRIBING' # Actively being transcribed
+    STREAMING = 'STREAMING'       # AI response is being streamed
+    FAILED = 'FAILED'             # An unrecoverable error occurred
 
 class Conversation(db.Model):
     __tablename__ = 'conversations'
@@ -46,7 +59,11 @@ class Message(db.Model):
     role = Column(String(50), nullable=False)  # 'user' or 'assistant'
     content = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+       # --- NEW FIELD ---
+    # This field will track the lifecycle status of the message.
+    status = Column(SQLAlchemyEnum(MessageStatus), default=MessageStatus.COMPLETE, nullable=False)
+    # --- END NEW FIELD ---
+
     # Relationship back to the Conversation model
     conversation = relationship('Conversation', back_populates='messages')
     
@@ -64,8 +81,9 @@ class Message(db.Model):
             "timestamp": self.created_at.isoformat(),
             "attachment": self.attachment.to_dict(host_url) if self.attachment else None,
             # --- ADD THIS LINE ---
-            'conversation_id': self.conversation_id
+            'conversation_id': self.conversation_id,
             # ---------------------
+            'status': self.status.value
         }
 
 

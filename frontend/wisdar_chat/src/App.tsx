@@ -11,6 +11,7 @@ import AuthPage from './pages/AuthPage';
 import { useAuth } from './contexts/AuthContext';
 import { authFetch } from './lib/api';
 import { AiModel, Conversation, Message, MessageStatus, User } from './types';
+import { toast } from "sonner";
 import './App.css';
 
 type View = 'chat' | 'settings' | 'admin';
@@ -432,6 +433,9 @@ const handleSendMessage = async (content: string, attachments?: File[]) => {
       // --- End of Corrected Logic ---
     } catch (error) {
       console.error("Error sending message:", error);
+        toast.error("Failed to send message", {
+          description: "Please check your network connection and try again.",
+        });
       setConversations(prev => prev.map(c => 
         c.id === activeConversation.id ? { 
           ...c, 
