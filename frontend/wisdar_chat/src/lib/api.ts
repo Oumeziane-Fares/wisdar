@@ -1,4 +1,4 @@
-import { Conversation, Message, AiModel, SseEvent, User } from '@/types';
+import { Conversation, AiModel, SseEvent, User } from '@/types';
 
 // The base URL for all API requests. This is proxied by Vite during development.
 const API_BASE_URL = '/api';

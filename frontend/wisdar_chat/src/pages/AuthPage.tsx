@@ -67,25 +67,16 @@ const AuthPage: React.FC = () => {
 
     try {
       if (isLoginView) {
-        const result = await login(email, password);
-        if (result.success) {
-          // Redirect to main app by reloading the page
-          window.location.reload();
-        } else {
-          setError(result.error || t('loginErrorInvalidCredentials', 'Invalid credentials.'));
-        }
+        await login(email, password);
+        // On successful login, the AuthContext will update and the app will redirect automatically.
       } else {
-        const result = await register(fullName, email, password);
-        if (result.success) {
-          setSuccess(t('registrationSuccess', 'Registration successful! Please log in.'));
-          setIsLoginView(true);
-        } else {
-          setError(result.error || t('registrationError', 'Registration failed.'));
-        }
+        await register(fullName, email, password);
+        setSuccess(t('registrationSuccess', 'Registration successful! Please log in.'));
+        setIsLoginView(true); // Switch to login view after successful registration
       }
-    } catch (err) {
-      setError(t('networkError', 'Network error. Please try again.'));
-      console.error("Authentication error:", err);
+    } catch (err: any) {
+        setError(err.message || t('authenticationError', 'An authentication error occurred.'));
+        console.error("Authentication error:", err);
     } finally {
       setIsLoading(false);
     }
@@ -93,7 +84,7 @@ const AuthPage: React.FC = () => {
 
   const handleSocialLogin = (provider: 'google' | 'twitter') => {
     const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-    window.location.href = `${apiUrl}/api/auth/${provider}`;
+    window.location.href = `${apiUrl}/api/auth/${provider}/login`;
   };
 
   return (

@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useContext, ReactNode } from 'react';
+import { createContext, useState, useEffect, useContext, ReactNode } from 'react';
 import { authFetch } from '@/lib/api'; // We will use this for all auth requests
 import { User as UserType } from '@/types'; // Import the comprehensive UserType from types
 

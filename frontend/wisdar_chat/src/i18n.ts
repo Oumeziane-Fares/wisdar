@@ -41,7 +41,7 @@ i18n
       order: ['localStorage', 'navigator', 'htmlTag', 'path', 'subdomain'],
       caches: ['localStorage'], // Where to cache the detected language
     },
-  }, (err, t) => {
+  }, (err) => {
     // Callback after init for older i18next versions,
     // or can be placed directly after .init if using i18next >= 21.x.x
     if (err) return console.error('Error initializing i18next:', err);

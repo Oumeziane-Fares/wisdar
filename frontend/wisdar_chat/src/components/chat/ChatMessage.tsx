@@ -1,8 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react'; // 1. Import useRef
+import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { LucideUser, LucideBot, LucideFileAudio, LucideMic } from 'lucide-react';
 import { MessageRole, Attachment, MessageStatus } from '../../types';
-import { fetchAudioBlob } from '../../lib/api';
 
 // Loading indicator component
 const LoadingIndicator: React.FC = () => (
@@ -16,7 +15,6 @@ const LoadingIndicator: React.FC = () => (
 interface ChatMessageProps {
   content: string;
   role: MessageRole;
-  timestamp: string;
   attachment?: Attachment;
   status?: MessageStatus;
   animate: boolean;
@@ -25,12 +23,11 @@ interface ChatMessageProps {
 const ChatMessage: React.FC<ChatMessageProps> = ({ 
   content, 
   role, 
-  timestamp, 
   attachment, 
   status = 'complete',
   animate
 }) => {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const isUser = role === 'user';
   
   const [displayedContent, setDisplayedContent] = useState('');
@@ -38,7 +35,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
   const [isLoadingAudio, setIsLoadingAudio] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
 
-  // 2. Use a ref to store the latest version of the content prop to prevent stale state
   const targetContentRef = useRef(content);
   targetContentRef.current = content;
 
@@ -46,78 +42,77 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                           attachment.fileType.startsWith('audio/') && 
                           attachment.fileURL;
 
-  // 3. This is the robust useEffect for the typewriter animation
   useEffect(() => {
-    // If we should not animate, set the content immediately and exit.
     if (role !== 'assistant' || !animate) {
         setDisplayedContent(targetContentRef.current);
         return;
     }
 
-    // Set up a single, stable interval
     const intervalId = setInterval(() => {
-        // Always read the LATEST target content from the ref inside the interval
         const target = targetContentRef.current;
         
-        // Use a functional update to get the latest displayed content state
         setDisplayedContent(currentDisplayed => {
             if (currentDisplayed.length < target.length) {
-                // Return the next character appended to the string
                 return target.substring(0, currentDisplayed.length + 1);
             } else {
-                // If we're done typing, clear the interval
                 clearInterval(intervalId);
                 return currentDisplayed;
             }
         });
-    }, 30); // You can adjust typing speed here
+    }, 30); 
 
-    // Cleanup function to stop the interval when the component unmounts
     return () => clearInterval(intervalId);
-  }, [role, animate]); // 4. This effect now only runs once when the component should animate
+  }, [role, animate]); 
 
 
-  // Audio loading logic (remains unchanged)
   useEffect(() => {
     let objectUrl: string | undefined;
-    let shouldSetState = true;
+
     const loadAudio = async () => {
-      if (!isPlayableAudio || !attachment?.fileURL) return;
-      if (attachment.fileURL.startsWith('blob:')) {
-        if (shouldSetState) setAudioSrc(attachment.fileURL);
-        return;
-      }
-      setIsLoadingAudio(true);
-      try {
-        const blob = await fetchAudioBlob(attachment.fileURL);
-        objectUrl = URL.createObjectURL(blob);
-        if (shouldSetState) setAudioSrc(objectUrl);
-      } catch (error) {
-        console.error("Error loading audio:", error);
-      } finally {
-        if (shouldSetState) setIsLoadingAudio(false);
-      }
+        if (!isPlayableAudio || !attachment?.fileURL) return;
+        
+        // If the URL is already a blob URL, just use it.
+        if (attachment.fileURL.startsWith('blob:')) {
+            setAudioSrc(attachment.fileURL);
+            return;
+        }
+
+        setIsLoadingAudio(true);
+        try {
+            // Fetch the audio data from the provided URL
+            const response = await fetch(attachment.fileURL);
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            // Create a blob from the response
+            const blob = await response.blob();
+            // Create an object URL from the blob
+            objectUrl = URL.createObjectURL(blob);
+            setAudioSrc(objectUrl);
+        } catch (error) {
+            console.error("Error loading audio from URL:", error);
+            // Optionally set an error state to display to the user
+        } finally {
+            setIsLoadingAudio(false);
+        }
     };
+
     loadAudio();
+
+    // Cleanup function to revoke the object URL when the component unmounts
+    // or the attachment changes, to prevent memory leaks.
     return () => {
-      shouldSetState = false;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+        if (objectUrl) {
+            URL.revokeObjectURL(objectUrl);
+        }
     };
   }, [attachment, isPlayableAudio]);
 
-  const formattedTimestamp = new Date(timestamp).toLocaleString(i18n.language, {
-    month: 'long', 
-    day: 'numeric', 
-    hour: 'numeric', 
-    minute: '2-digit', 
-    hour12: true,
-  });
 
   const handleAudioPlay = () => setIsPlaying(true);
   const handleAudioPause = () => setIsPlaying(false);
   const handleAudioEnded = () => setIsPlaying(false);
 
-  // This function now uses 'displayedContent' to render text
   const renderContent = () => {
     if (!isUser && (status === 'thinking' || status === 'transcribing')) {
       return (
@@ -137,7 +132,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
             <LucideFileAudio size={22} className={isUser ? "text-purple-500 dark:text-purple-300" : "text-blue-500 dark:text-blue-300"} />
             <span className="text-xs italic truncate flex-grow" title={attachment.fileName}>{attachment.fileName}</span>
           </div>
-          <audio controls src={audioSrc} className="w-full h-10 rounded" disabled={isLoadingAudio || !audioSrc} onPlay={handleAudioPlay} onPause={handleAudioPause} onEnded={handleAudioEnded}>
+          <audio controls src={audioSrc} className="w-full h-10 rounded" onPlay={handleAudioPlay} onPause={handleAudioPause} onEnded={handleAudioEnded}>
             {t('audioPlayerNotSupported', 'Your browser does not support the audio element.')}
           </audio>
           {isLoadingAudio && <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t('loadingAudio', 'Loading audio...')}</div>}

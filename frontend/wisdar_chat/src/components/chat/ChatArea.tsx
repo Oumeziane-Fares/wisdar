@@ -221,7 +221,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                         <ChatMessage
                             content={message.content}
                             role={message.role}
-                            timestamp={message.timestamp}
                             attachment={message.attachment}
                             status={message.status}
                             animate={hasInitialLoadCompleted && index >= initialMessageCount}
