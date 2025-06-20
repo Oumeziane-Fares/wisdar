@@ -219,7 +219,7 @@ function App() {
           
           // Use the message from the event to show an error toast.
           // The 'richColors' prop on your <Toaster /> will make this red.
-          toast.error(eventData.data.message);
+          toast.error(eventData.message);
 
           console.error("Task Failed Event Received:", eventData);
         } catch (e) {

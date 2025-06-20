@@ -72,7 +72,7 @@ def get_all_models():
     except Exception as e:
         return jsonify({"message": f"Error fetching models: {e}"}), 500
 
-@models_bp.route('/<string:model_id>', methods=['PUT'])
+@models_bp.route('/<string:model_id>/api-key', methods=['PUT'])
 @admin_required()
 def update_model_key(model_id):
     data = request.get_json()

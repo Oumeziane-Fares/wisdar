@@ -9,7 +9,7 @@ import requests
 # Celery and Flask imports
 from .celery_app import celery_app
 from flask import current_app
-
+from flask_jwt_extended import get_jwt_identity
 # --- CORRECTED: Added all necessary model and utility imports ---
 
 from .database import db
@@ -219,7 +219,8 @@ def orchestrate_transcription(self, message_id):
                 db.session.commit()
 
                 # 1. Define the correct channel format
-                channel = f'user-{user_id}'
+                user_id = message.conversation.user_id
+                channel = f"user-{user_id}"
 
                 # 2. Define the event name
                 event_name = 'task_failed'
@@ -253,3 +254,4 @@ def orchestrate_transcription(self, message_id):
     except Exception as exc:
         logger.error(f"orchestrate_transcription failed: {exc}", exc_info=True)
         raise self.retry(exc=exc)
+    

@@ -31,13 +31,13 @@ const AdminDashboard: React.FC = () => {
         setIsLoadingModels(true);
         try {
           // --- FIX: Use the correct, relative API path ---
-          const keyResponse = await authFetch('/api/models/security/public-key');
+          const keyResponse = await authFetch('/models/security/public-key');
           if (!keyResponse.ok) throw new Error('Failed to fetch public key.');
           const keyData = await keyResponse.json();
           setPublicKey(keyData.public_key);
 
           // --- FIX: Use the correct, relative API path ---
-          const modelsResponse = await authFetch('/api/models');
+          const modelsResponse = await authFetch('/models');
           if (!modelsResponse.ok) throw new Error('Failed to fetch models.');
           const modelsData: AiModel[] = await modelsResponse.json();
           setModels(modelsData);
@@ -106,7 +106,7 @@ const AdminDashboard: React.FC = () => {
 
     try {
       // --- FIX: Use the correct, relative API path for updating the key ---
-      const response = await authFetch(`/api/models/${modelId}/api-key`, {
+      const response = await authFetch(`/models/${modelId}/api-key`, {
         method: 'PUT',
         body: JSON.stringify({ encrypted_api_key: encryptedApiKey }),
       });
