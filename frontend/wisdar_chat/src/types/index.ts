@@ -100,18 +100,16 @@ export interface Conversation {
  * Represents an application user
  */
 export interface User {
-  id: number;                    // Unique user ID
-  full_name: string;             // User's full name
-  email: string;                 // User's email address
-  role: 'user' | 'admin';        // User's system role
-  
+  id: number; // Updated to 'number' as per your latest request
+  full_name: string; // User's full name
+  email: string; // User's email address
+  role: 'user' | 'admin'; // User's system role
   // AI models assigned to this user
   assigned_models: AiModel[];
-  
   // Optional metadata
-  avatar_url?: string;           // Optional profile picture URL
-  last_active?: string;          // Optional last active timestamp
-  preferences?: {                // Optional user preferences
+  avatar_url?: string; // Optional profile picture URL
+  last_active?: string; // Optional last active timestamp
+  preferences?: { // Optional user preferences
     language?: string;
     theme?: 'light' | 'dark';
   };

@@ -1,12 +1,10 @@
 import React, { createContext, useState, useEffect, useContext, ReactNode } from 'react';
 import { authFetch } from '@/lib/api'; // We will use this for all auth requests
+import { User as UserType } from '@/types'; // Import the comprehensive UserType from types
 
-// Define the shape of the User object
-interface User {
-  id: string; // Changed to string to match JWT identity
-  full_name: string;
-  email: string;
-}
+// Define the shape of the User object, now using the imported UserType
+// No need for 'interface User extends UserType {}' if we just use UserType directly
+type User = UserType; // Use type alias for clarity if preferred, or directly use UserType
 
 // Define the shape of the context value
 interface AuthContextType {

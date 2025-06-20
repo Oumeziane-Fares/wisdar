@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { LucideUsers, LucideMessageSquare, LucideBarChart, LucideSettings, LucideLogOut, LucideKeyRound } from 'lucide-react';
+import { LucideUsers, LucideMessageSquare, LucideBarChart, LucideSettings, LucideLogOut, LucideKeyRound, LucideArrowLeft } from 'lucide-react'; // Added LucideArrowLeft
 import { authFetch } from '../../lib/api'; 
 import { AiModel } from '../../types'; 
 import { useToast } from '@/hooks/use-toast';
@@ -8,15 +8,28 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import forge from 'node-forge';
 
+// Import necessary UI components
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { useAuth } from '../../contexts/AuthContext'; // Assuming useAuth is still relevant for user role checks
+import { AuthFetchError } from '../../lib/api'; // Assuming AuthFetchError exists
+
 type AdminTab = 'dashboard' | 'users' | 'conversations' | 'usage' | 'settings' | 'apiKeys';
 
 type ApiKeyInputs = {
   [key: string]: string;
 };
 
-const AdminDashboard: React.FC = () => {
+// Define the props interface for AdminDashboard
+interface AdminDashboardProps {
+  onBack: () => void; // Added onBack prop to match App.tsx usage
+}
+
+const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => { // Destructure onBack from props
   const { t } = useTranslation();
   const { toast } = useToast();
+  const { user } = useAuth(); // Assuming you need user context for admin access checks
   const [activeTab, setActiveTab] = useState<AdminTab>('apiKeys'); // Default to apiKeys for easier testing
 
   const [models, setModels] = useState<AiModel[]>([]);
@@ -25,37 +38,69 @@ const AdminDashboard: React.FC = () => {
   
   const [publicKey, setPublicKey] = useState<string | null>(null);
 
+  // State for user management (added based on original AdminDashboard structure)
+  const [allUsers, setAllUsers] = useState<User[]>([]);
+  const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+  const [usersError, setUsersError] = useState<string | null>(null);
+
+
   useEffect(() => {
+    // Fetch AI models for API Keys tab
     if (activeTab === 'apiKeys') {
-      const fetchRequiredData = async () => {
+      const fetchApiKeysData = async () => {
         setIsLoadingModels(true);
         try {
-          // --- FIX: Use the correct, relative API path ---
           const keyResponse = await authFetch('/models/security/public-key');
           if (!keyResponse.ok) throw new Error('Failed to fetch public key.');
           const keyData = await keyResponse.json();
           setPublicKey(keyData.public_key);
 
-          // --- FIX: Use the correct, relative API path ---
           const modelsResponse = await authFetch('/models');
           if (!modelsResponse.ok) throw new Error('Failed to fetch models.');
           const modelsData: AiModel[] = await modelsResponse.json();
           setModels(modelsData);
 
-        } catch (error) {
+        } catch (error: any) { // Explicitly type error for better handling
           toast({
             title: t('error', 'Error'),
-            description: "Failed to load security settings or models.",
+            description: `Failed to load security settings or models: ${error.message || 'Unknown error'}`,
             variant: 'destructive',
           });
-          console.error("Error fetching admin data:", error);
+          console.error("Error fetching admin data (API Keys tab):", error);
         } finally {
           setIsLoadingModels(false);
         }
       };
-      fetchRequiredData();
+      fetchApiKeysData();
     }
-  }, [activeTab, t, toast]);
+
+    // Fetch users for User Management tab
+    if (activeTab === 'users' && user?.role === 'admin') { // Only fetch if user is admin
+      const fetchUsers = async () => {
+        setIsLoadingUsers(true);
+        try {
+          const usersResponse = await authFetch('/auth/users');
+          if (!usersResponse.ok) {
+            throw new Error('Failed to fetch users.');
+          }
+          const usersData: User[] = await usersResponse.json();
+          setAllUsers(usersData);
+        } catch (error: any) { // Explicitly type error for better handling
+          console.error('Error fetching users:', error);
+          setUsersError(error.message || 'Failed to load users.');
+          toast({
+            title: t('error', 'Error'),
+            description: `Failed to load user data: ${error.message || 'Unknown error'}`,
+            variant: 'destructive',
+          });
+        } finally {
+          setIsLoadingUsers(false);
+        }
+      };
+      fetchUsers();
+    }
+
+  }, [activeTab, t, toast, user]); // Added user to dependencies
 
   const handleApiKeyChange = (modelId: string, value: string) => {
     setApiKeyInputs(prev => ({
@@ -79,10 +124,8 @@ const AdminDashboard: React.FC = () => {
     let encryptedApiKey: string;
 
     try {
-      // Convert the PEM public key string into a forge public key object
       const forgePublicKey = forge.pki.publicKeyFromPem(publicKey);
 
-      // Encrypt the API key using RSA-OAEP and explicitly specify SHA-256
       const encryptedBytes = forgePublicKey.encrypt(plainTextApiKey, 'RSA-OAEP', {
         md: forge.md.sha256.create(),
         mgf1: {
@@ -90,7 +133,6 @@ const AdminDashboard: React.FC = () => {
         },
       });
 
-      // Encode the encrypted bytes into Base64 to send as a JSON string
       encryptedApiKey = forge.util.encode64(encryptedBytes);
       
     } catch (e) {
@@ -105,7 +147,6 @@ const AdminDashboard: React.FC = () => {
     }
 
     try {
-      // --- FIX: Use the correct, relative API path for updating the key ---
       const response = await authFetch(`/models/${modelId}/api-key`, {
         method: 'PUT',
         body: JSON.stringify({ encrypted_api_key: encryptedApiKey }),
@@ -120,12 +161,43 @@ const AdminDashboard: React.FC = () => {
       toast({ title: t('success', 'Success'), description: result.message });
       setApiKeyInputs(prev => ({ ...prev, [modelId]: '' }));
 
-    } catch (error) {
+    } catch (error: any) {
       const errorMessage = (error instanceof Error) ? error.message : "An unknown error occurred.";
       toast({ title: t('error', 'Error'), description: errorMessage, variant: 'destructive' });
       console.error(`Error updating API key for ${modelId}:`, error);
     }
   };
+
+  const handleUpdateUserRole = async (userId: number, newRole: 'user' | 'admin') => {
+    try {
+      const response = await authFetch('/admin/update_role', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ user_id: userId, role: newRole }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to update user role.');
+      }
+
+      // Update local state
+      setAllUsers(prevUsers => prevUsers.map(u =>
+        u.id === userId ? { ...u, role: newRole } : u
+      ));
+
+      toast.success(t('userRoleUpdated', 'User role updated successfully.'));
+
+    } catch (error: any) {
+      console.error('Error updating user role:', error);
+      toast.error(t('failedToUpdateUserRole', 'Failed to update user role.'), {
+        description: error.message || 'An unexpected error occurred.',
+      });
+    }
+  };
+
 
   const renderTabContent = () => {
     switch (activeTab) {
@@ -140,10 +212,43 @@ const AdminDashboard: React.FC = () => {
         );
         
       case 'users':
+        if (isLoadingUsers) {
+          return <p>{t('loadingUsers', 'Loading users...')}</p>;
+        }
+        if (usersError) {
+          return <p className="text-red-500">{t('errorLoadingUsers', 'Error loading users:')} {usersError}</p>;
+        }
         return (
           <div className="space-y-6">
             <h2 className="text-2xl font-semibold">Gestion des utilisateurs</h2>
-            {/* User management table/components would go here */}
+            <div className="space-y-4">
+              {allUsers.length === 0 ? (
+                <p>{t('noUsersFound', 'No users found.')}</p>
+              ) : (
+                allUsers.map((u) => (
+                  <div key={u.id} className="flex items-center justify-between p-3 border border-gray-200 dark:border-gray-700 rounded-md bg-gray-50 dark:bg-gray-700">
+                    <div>
+                      <h3 className="font-medium">{u.full_name} ({u.email})</h3>
+                      <p className="text-sm text-gray-500 dark:text-gray-300">
+                        {t('roleLabel', 'Role')}: {u.role}
+                      </p>
+                    </div>
+                    <div className="flex items-center space-x-4 rtl:space-x-reverse">
+                      <Label htmlFor={`admin-switch-${u.id}`} className="flex items-center gap-2 cursor-pointer">
+                        <span>{t('adminRole', 'Admin')}</span>
+                        <Switch
+                          id={`admin-switch-${u.id}`}
+                          checked={u.role === 'admin'}
+                          onCheckedChange={(checked) => handleUpdateUserRole(u.id, checked ? 'admin' : 'user')}
+                          disabled={user?.id === u.id} // Prevent admin from changing their own role via this UI
+                          className="data-[state=checked]:bg-[#6B5CA5]"
+                        />
+                      </Label>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         );
         
@@ -208,8 +313,23 @@ const AdminDashboard: React.FC = () => {
             {/* System settings components would go here */}
           </div>
         );
+      default:
+        return null;
     }
   };
+
+  if (!user || user.role !== 'admin') {
+    return (
+      <div className="flex flex-col items-center justify-center h-full p-4 text-center">
+        <h2 className="text-2xl font-bold mb-4">{t('accessDenied', 'Access Denied')}</h2>
+        <p className="text-gray-600 dark:text-gray-400">{t('adminAccessRequired', 'You must be an administrator to view this page.')}</p>
+        <Button onClick={onBack} className="mt-6 bg-[#6B5CA5] hover:bg-[#5d4f91] text-white">
+          <LucideArrowLeft size={18} className="mr-2" />
+          {t('backToChat', 'Back to Chat')}
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full h-full bg-gray-100 dark:bg-gray-900 flex text-gray-900 dark:text-gray-100">

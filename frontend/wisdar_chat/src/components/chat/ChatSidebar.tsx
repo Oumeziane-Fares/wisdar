@@ -15,6 +15,7 @@ interface ChatSidebarProps {
   onSelectConversation: (id: string | number) => void;
   onNewConversation: () => void;
   onOpenSettings: () => void;
+    onLogout: () => void; // Added onLogout prop
 }
 
 const ChatSidebar: React.FC<ChatSidebarProps> = ({

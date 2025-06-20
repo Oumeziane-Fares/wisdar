@@ -1,6 +1,6 @@
 // frontend/wisdar_chat/src/App.tsx
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ThemeProvider } from './components/ui/ThemeProvider';
 import ChatSidebar from './components/chat/ChatSidebar';
@@ -10,7 +10,7 @@ import AdminDashboard from './components/admin/AdminDashboard';
 import AuthPage from './pages/AuthPage';
 import { useAuth } from './contexts/AuthContext';
 import { authFetch } from './lib/api';
-import { AiModel, Conversation, Message, MessageStatus, User } from './types';
+import { AiModel, Conversation, Message, MessageStatus} from './types';
 import { toast } from "sonner";
 import './App.css';
 
