@@ -1,5 +1,7 @@
 # backend/wisdar_backend/src/main.py
-
+# ADD THESE LINES AT THE VERY TOP OF THE FILE
+from gevent import monkey
+monkey.patch_all()
 import os
 import sys
 import logging
@@ -49,13 +51,21 @@ db_uri = (
 )
 app.config['SQLALCHEMY_DATABASE_URI'] = db_uri
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+# Add these lines to increase the database connection pool
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    "pool_size": 20,
+    "pool_recycle": 280,
+    "pool_pre_ping": True
+}
 app.config['UPLOAD_FOLDER'] = os.path.join(app.static_folder, 'uploads')
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+# Determine if the app is running in a secure context
+is_production = os.getenv("PUBLIC_SERVER_URL", "").startswith("https://")
 app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'your-super-secret-jwt-key')
 app.config["JWT_TOKEN_LOCATION"] = ["cookies"]
-app.config["JWT_COOKIE_SECURE"] = not app.debug
+app.config["JWT_COOKIE_SECURE"] = is_production
 app.config["JWT_COOKIE_CSRF_PROTECT"] = False
-app.config["JWT_COOKIE_SAMESITE"] = "Lax"
+app.config["JWT_COOKIE_SAMESITE"] = "None" if is_production else "Lax"
 app.config["SPEECHMATICS_API_KEY"] = os.getenv("SPEECHMATICS_API_KEY")
 app.config["PUBLIC_SERVER_URL"] = os.getenv("PUBLIC_SERVER_URL", "http://localhost:5000")
 app.config["JWT_COOKIE_DOMAIN"] = os.getenv('COOKIE_DOMAIN', None)
