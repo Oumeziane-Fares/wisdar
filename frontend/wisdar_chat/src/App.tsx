@@ -10,7 +10,7 @@ import AdminDashboard from './components/admin/AdminDashboard';
 import AuthPage from './pages/AuthPage';
 import { useAuth } from './contexts/AuthContext';
 import { authFetch } from './lib/api';
-import { AiModel, Conversation, Message, MessageStatus} from './types';
+import { AiModel, Conversation, Message, MessageStatus } from './types';
 import { toast } from "sonner";
 import './App.css';
 
@@ -27,7 +27,8 @@ function App() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   
   const sseRef = useRef<EventSource | null>(null);
-  const reconnectAttempts = useRef(0);
+  //const reconnectAttempts = useRef(0);
+  //const lastChunkUpdate = useRef(0); // For throttling rapid events
 
   const handleSelectConversation = useCallback(async (id: string | number) => {
     setConversations(prev => {
@@ -42,7 +43,6 @@ function App() {
 
     if (id !== 'new') {
       try {
-        // CORRECTED: Removed VITE_API_URL and used the correct relative path.
         const response = await authFetch(`/chat/conversations/${id}/messages`);
         if (!response.ok) throw new Error('Failed to fetch messages.');
         const messagesData: Message[] = await response.json();
@@ -62,199 +62,120 @@ function App() {
     }
   }, []);
 
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    
-    const setupSSEConnection = () => {
-      if (sseRef.current) {
-        sseRef.current.close();
-      }
-      
-      // CORRECTED: Removed VITE_API_URL. EventSource works with a relative path.
-      // The Vite proxy will handle forwarding this to the backend.
-      sseRef.current = new EventSource(
-        `/api/stream/events`,
-        { withCredentials: true }
-      );
-      
-      const eventSource = sseRef.current;
-      
-      eventSource.onopen = () => {
-        console.log("SSE Connection Established");
-        reconnectAttempts.current = 0;
-      };
-
-      eventSource.addEventListener('ping', () => {});
-
-      eventSource.addEventListener('transcription_complete', (event: MessageEvent) => {
-        try {
-          const eventData = JSON.parse(event.data);
-          console.log("transcription_complete event:", eventData);
-          
-          setConversations(prev => prev.map(convo => {
-            const userMessageIndex = convo.messages.findIndex(m => m.id === eventData.message_id);
-            if (userMessageIndex !== -1) {
-              const updatedUserMessage = {
-                ...convo.messages[userMessageIndex],
-                content: eventData.content,
-                status: 'complete' as MessageStatus
-              };
-
-              const assistantMessageIndex = convo.messages.findIndex(m => 
-                m.id === `assistant-${eventData.message_id}`
-              );
-              
-              const newMessages = [...convo.messages];
-              newMessages[userMessageIndex] = updatedUserMessage;
-              
-              if (assistantMessageIndex !== -1) {
-                newMessages[assistantMessageIndex] = {
-                  ...newMessages[assistantMessageIndex],
-                  status: 'thinking' as MessageStatus
-                };
-              }
-
-              return { ...convo, messages: newMessages };
-            }
-            return convo;
-          }));
-        } catch (error) {
-          console.error("Error handling transcription_complete:", error);
-        }
-      });
-
-      eventSource.addEventListener('stream_start', (event: MessageEvent) => {
-        try {
-          const eventData = JSON.parse(event.data);
-          console.log("stream_start event:", eventData);
-          
-          const newMessage: Message = eventData.message;
-          setConversations(prev => prev.map(convo => {
-            if (String(convo.id) === String(newMessage.conversation_id)) {
-              const placeholderIndex = convo.messages.findIndex(m => 
-                m.status === 'thinking' || m.status === 'transcribing'
-              );
-              
-              if (placeholderIndex !== -1) {
-                const newMessages = [...convo.messages];
-                newMessages.splice(placeholderIndex, 1, {
-                  ...newMessage,
-                  status: 'streaming' as MessageStatus
-                });
-                
-                return {
-                  ...convo,
-                  messages: newMessages
-                };
-              }
-              
-              return {
-                ...convo,
-                messages: [...convo.messages, {
-                  ...newMessage,
-                  status: 'streaming' as MessageStatus
-                }]
-              };
-            }
-            return convo;
-          }));
-        } catch (error) {
-          console.error("Error handling stream_start:", error);
-        }
-      });
-
-      eventSource.addEventListener('stream_chunk', (event: MessageEvent) => {
-        try {
-          const eventData = JSON.parse(event.data);
-          setConversations(prev => prev.map(convo => {
-            const messageIndex = convo.messages.findIndex(m => 
-              m.id === eventData.message_id
-            );
-            
-            if (messageIndex !== -1) {
-              const updatedMessages = [...convo.messages];
-              updatedMessages[messageIndex] = {
-                ...updatedMessages[messageIndex],
-                content: updatedMessages[messageIndex].content + eventData.content,
-              };
-              return { ...convo, messages: updatedMessages };
-            }
-            return convo;
-          }));
-        } catch (error) {
-          console.error("Error handling stream_chunk:", error);
-        }
-      });
-
-      eventSource.addEventListener('stream_end', (event: MessageEvent) => {
-        try {
-          const eventData = JSON.parse(event.data);
-          console.log("stream_end event:", eventData);
-          
-          setConversations(prev => prev.map(convo => {
-            const messageIndex = convo.messages.findIndex(m => 
-              m.id === eventData.message_id
-            );
-            
-            if (messageIndex !== -1) {
-              const updatedMessages = [...convo.messages];
-              updatedMessages[messageIndex] = {
-                ...updatedMessages[messageIndex],
-                status: 'complete' as MessageStatus
-              };
-              return { ...convo, messages: updatedMessages };
-            }
-            return convo;
-          }));
-        } catch (error) {
-          console.error("Error handling stream_end:", error);
-        }
-      });
-      // --- MODIFICATION START ---
-      // 2. Add a specific event listener for 'task_failed'
-      eventSource.addEventListener('task_failed', (event) => {
-        try {
-          // The event data from the backend is a JSON string.
-          const eventData = JSON.parse(event.data);
-          
-          // Use the message from the event to show an error toast.
-          // The 'richColors' prop on your <Toaster /> will make this red.
-          toast.error(eventData.message);
-
-          console.error("Task Failed Event Received:", eventData);
-        } catch (e) {
-          console.error("Failed to parse task_failed event:", e);
-        }
-      });
-      // --- MODIFICATION END ---
-
-      eventSource.onerror = (err) => {
-        console.error("SSE Connection Error:", err);
-        eventSource.close();
+    useEffect(() => {
+        if (!isAuthenticated) return;
         
-        if (reconnectAttempts.current < 5) {
-          const delay = Math.min(3000 * (reconnectAttempts.current + 1), 15000);
-          reconnectAttempts.current += 1;
-          
-          setTimeout(() => {
-            console.log(`Attempting SSE reconnect (#${reconnectAttempts.current})...`);
-            setupSSEConnection();
-          }, delay);
-        } else {
-          console.error("Max SSE reconnect attempts reached");
-        }
-      };
-    };
+        const setupSSEConnection = () => {
+            // Close any existing connection before creating a new one
+            if (sseRef.current) {
+                sseRef.current.close();
+            }
+            
+            // Create the new EventSource connection
+            sseRef.current = new EventSource(`/api/stream/events`, { withCredentials: true });
+            const eventSource = sseRef.current;
+            
+            // Log when the connection is successfully opened
+            eventSource.onopen = () => console.log("%cSSE Connection Established", "color: green; font-weight: bold;");
 
-    setupSSEConnection();
-    
-    return () => {
-      if (sseRef.current) {
-        sseRef.current.close();
-        sseRef.current = null;
-      }
-    };
-  }, [isAuthenticated]);
+            // Use a single onmessage handler to process all incoming events
+            eventSource.onmessage = (event: MessageEvent) => {
+                try {
+                    console.log("[Raw SSE Event]", event.data);
+                    
+                    // --- THE DEFINITIVE FIX ---
+                    // 1. Parse the outer JSON from the SSE `data` field.
+                    const outerData = JSON.parse(event.data);
+                    
+                    // 2. The actual event payload is a JSON *string* inside the 'data' property. Parse it too.
+                    const eventData = JSON.parse(outerData.data);
+                    
+                    console.log(`%c[SSE Parsed] Type: ${eventData.type}`, "color: purple;", eventData);
+
+                    // --- Handle the different event types ---
+
+                    if (eventData.type === 'stream_start') {
+                        const newMessage: Message = eventData.message;
+                        // Guard against missing conversation_id to ensure type safety
+                        if (typeof newMessage.conversation_id === 'undefined') {
+                            console.error("stream_start event received without a conversation_id.");
+                            return;
+                        }
+
+                        const realConversationId = newMessage.conversation_id;
+
+                        setConversations(prev => {
+                            const newConvos = [...prev];
+                            const convoIndex = newConvos.findIndex(c => c.id === 'new' || c.id === realConversationId);
+                            if (convoIndex === -1) return prev;
+                            
+                            const updatedConvo = { ...newConvos[convoIndex] };
+                            updatedConvo.id = realConversationId; // Solidify the conversation ID
+                            
+                            const placeholderIndex = updatedConvo.messages.findIndex(m => m.status === 'thinking' || m.status === 'transcribing');
+
+                            if (placeholderIndex !== -1) {
+                                // Replace the placeholder with the real streaming message
+                                updatedConvo.messages[placeholderIndex] = { ...newMessage, status: 'streaming' };
+                            } else {
+                                updatedConvo.messages.push({ ...newMessage, status: 'streaming' });
+                            }
+                            
+                            newConvos[convoIndex] = updatedConvo;
+                            return newConvos;
+                        });
+
+                    } else if (eventData.type === 'stream_chunk') {
+                        setConversations(prev => prev.map(convo => {
+                            const msgIndex = convo.messages.findIndex(m => m.status === 'streaming');
+                            if (msgIndex === -1) return convo;
+
+                            // Create a new, updated message object immutably
+                            const updatedMessage = {
+                                ...convo.messages[msgIndex],
+                                content: convo.messages[msgIndex].content + eventData.content
+                            };
+
+                            const newMessages = [...convo.messages];
+                            newMessages[msgIndex] = updatedMessage;
+                            
+                            return { ...convo, messages: newMessages };
+                        }));
+                        
+                    } else if (eventData.type === 'stream_end') {
+                        setConversations(prev => prev.map(convo => {
+                            const msgIndex = convo.messages.findIndex(m => m.id === eventData.message_id);
+                            if (msgIndex === -1) return convo;
+                            
+                            const newMessages = [...convo.messages];
+                            newMessages[msgIndex] = { ...newMessages[msgIndex], status: 'complete' };
+
+                            return { ...convo, messages: newMessages };
+                        }));
+                    }
+
+                } catch (error) {
+                    console.error("Error processing SSE message:", error);
+                }
+            };
+
+            eventSource.onerror = (err) => {
+                console.error("%cSSE Connection Error", "color: red; font-weight: bold;", err);
+                eventSource.close();
+                // Your reconnect logic can go here if needed
+            };
+        };
+
+        setupSSEConnection();
+        
+        // Cleanup function to close the connection when the component unmounts
+        return () => {
+            if (sseRef.current) {
+                sseRef.current.close();
+                sseRef.current = null;
+            }
+        };
+    }, [isAuthenticated]); // This effect should only re-run when authentication status changes
 
   useEffect(() => {
     const setupUserData = async () => {
@@ -267,7 +188,6 @@ function App() {
         setAvailableModels(userModels);
 
         try {
-          // CORRECTED: Removed VITE_API_URL and used the correct relative path.
           const response = await authFetch('/chat/conversations');
           if (!response.ok) throw new Error('Failed to fetch conversations');
           const dataFromBackend = await response.json();
@@ -336,7 +256,7 @@ function App() {
     setConversations(prev => [newTempConvo, ...prev.map(c => ({ ...c, active: false }))]);
   };
   
-const handleSendMessage = async (content: string, attachments?: File[]) => {
+  const handleSendMessage = async (content: string, attachments?: File[]) => {
     if (!activeConversation) return;
 
     const hasAttachment = attachments && attachments.length > 0;
@@ -401,22 +321,15 @@ const handleSendMessage = async (content: string, attachments?: File[]) => {
 
       const { new_conversation, user_message } = await response.json();
 
-      // --- Start of Corrected Logic ---
       if (isNewConversation) {
         setConversations(prev => {
             const tempConvo = prev.find(c => c.id === 'new');
             const optimisticMessages = tempConvo ? tempConvo.messages : [];
             
-            // Create a new, synchronized message list by replacing the temp user message
-            // with the real one from the server.
+            // Create synchronized message list
             const finalMessages = optimisticMessages.map(m => {
                 if (m.id === userMessageId) {
                     return { ...user_message, status: 'complete' as MessageStatus };
-                }
-                // Also, update the assistant placeholder's ID to be based on the REAL user_message.id.
-                // This is the crucial step so that future SSE events can find it.
-                if (m.id === assistantMessageId) {
-                    return { ...m, id: `assistant-${user_message.id}` };
                 }
                 return m;
             });
@@ -426,7 +339,7 @@ const handleSendMessage = async (content: string, attachments?: File[]) => {
                 title: new_conversation.title,
                 created_at: new_conversation.created_at,
                 aiModelId: new_conversation.ai_model_id,
-                messages: finalMessages, // Use the updated, synchronized list
+                messages: finalMessages,
                 active: true,
             };
 
@@ -436,7 +349,6 @@ const handleSendMessage = async (content: string, attachments?: File[]) => {
             ];
         });
       } else {
-        // This logic handles updating the message ID in an existing conversation
         setConversations(prev => prev.map(c => {
           if (c.id === activeConversation.id) {
             const updatedMessages = c.messages.map(m => 
@@ -447,7 +359,6 @@ const handleSendMessage = async (content: string, attachments?: File[]) => {
           return c;
         }));
       }
-      // --- End of Corrected Logic ---
     } catch (error) {
       console.error("Error sending message:", error);
         toast.error("Failed to send message", {
