@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next'; // Import useTranslation
 import { LucideArrowLeft, LucideMoon, LucideSun, LucideUser, LucideBell, LucideLock } from 'lucide-react';
 import { useTheme } from '../ui/ThemeProvider'; //
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"; // Add this
 
 interface SettingsPanelProps {
   onBack: () => void;
@@ -11,10 +12,13 @@ interface SettingsPanelProps {
 type SettingsTab = 'profile' | 'appearance' | 'notifications' | 'privacy';
 
 const SettingsPanel: React.FC<SettingsPanelProps> = ({ onBack }) => {
-  const { t } = useTranslation(); // Initialize useTranslation
+  const { t, i18n } = useTranslation(); // Add this
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
   const { theme, setTheme } = useTheme(); //
-
+  // Add this function
+  const changeLanguage = (lng: string) => {
+    i18n.changeLanguage(lng);
+  };
   const renderTabContent = () => {
     switch (activeTab) {
       case 'profile':
@@ -51,6 +55,22 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onBack }) => {
                     {t('editButton')} {/* Translated */}
                   </button>
                 </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">{t('languageLabel')}</label>
+                <Select value={i18n.language} onValueChange={changeLanguage}>
+                  <SelectTrigger className="w-full dark:bg-gray-700 dark:text-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="dark:bg-gray-700">
+                    <SelectItem value="en" className="dark:text-white dark:focus:bg-gray-600">
+                      {t('english')}
+                    </SelectItem>
+                    <SelectItem value="ar" className="dark:text-white dark:focus:bg-gray-600">
+                      {t('arabic')}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
           </div>

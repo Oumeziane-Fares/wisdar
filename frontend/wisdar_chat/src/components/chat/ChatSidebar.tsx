@@ -2,8 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { LucideMessageSquare, LucidePlus, LucideSettings, LucideLogOut } from 'lucide-react';
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Label } from "@/components/ui/label";
+import { LucideShield } from 'lucide-react'; // Add this import
 import { useAuth } from '../../contexts/AuthContext';
 // MODIFIED: Import the shared Conversation type
 import { Conversation } from '../../types';
@@ -15,21 +14,19 @@ interface ChatSidebarProps {
   onSelectConversation: (id: string | number) => void;
   onNewConversation: () => void;
   onOpenSettings: () => void;
-    onLogout: () => void; // Added onLogout prop
+  onOpenAdmin: () => void; // Add this line
+  onLogout: () => void; // Added onLogout prop
 }
 
 const ChatSidebar: React.FC<ChatSidebarProps> = ({
   conversations,
   onSelectConversation,
   onNewConversation,
-  onOpenSettings
+  onOpenSettings,
+  onOpenAdmin, // Add this prop
 }) => {
   const { t, i18n } = useTranslation();
   const { user, logout } = useAuth(); 
-
-  const changeLanguage = (lng: string) => {
-    i18n.changeLanguage(lng);
-  };
 
   return (
     <div className="w-64 h-full bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
@@ -82,20 +79,16 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
       {/* Footer */}
       <div className="p-4 border-t border-gray-200 dark:border-gray-700 space-y-3">
         {/* Language Selector */}
-        <div className="space-y-1">
-            <Label htmlFor="language-select" className="text-sm font-medium text-gray-700 dark:text-gray-300">
-             {t('languageLabel')}
-            </Label>
-            <Select value={i18n.language} onValueChange={changeLanguage}>
-              <SelectTrigger id="language-select" className="w-full dark:bg-gray-700 dark:text-white">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="dark:bg-gray-700">
-                <SelectItem value="en" className="dark:text-white dark:focus:bg-gray-600">{t('english')}</SelectItem>
-                <SelectItem value="ar" className="dark:text-white dark:focus:bg-gray-600">{t('arabic')}</SelectItem>
-              </SelectContent>
-            </Select>
-        </div>
+        {user?.role === 'admin' && (
+          <Button
+            variant="outline"
+            onClick={onOpenAdmin}
+            className="w-full flex items-center justify-start gap-2"
+          >
+            <LucideShield size={18} className="text-gray-500" />
+            <span>{t('adminPanel')}</span>
+          </Button>
+        )}
         {/* Settings and Logout Buttons */}
         <Button
           variant="outline" 
