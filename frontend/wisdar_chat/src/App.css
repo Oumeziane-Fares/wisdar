@@ -1,0 +1,42 @@
+.custom-audio-player {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 250px; /* Ensure it has a minimum width */
+}
+
+.play-pause-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background-color: #6B5CA5; /* Your primary color */
+  color: white;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0; /* Prevent the button from shrinking */
+}
+
+.waveform-container {
+  flex-grow: 1; /* Allow the waveform to take up remaining space */
+  width: 100%;
+}
+
+.time-display {
+  font-size: 0.75rem; /* 12px */
+  font-family: monospace;
+  color: #FFFFFF;
+  white-space: nowrap; /* Prevent time from wrapping */
+}
+
+/* Dark mode styles */
+.dark .time-display {
+    color: #FFFFFF;
+}
+
+.language-flag {
+  font-family: "Twemoji Mozilla", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji", "EmojiOne Color", "Android Emoji", sans-serif;
+}

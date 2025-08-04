@@ -11,6 +11,7 @@ interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  setUser: (user: User | null) => void; // <-- ADD THIS LINE
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   register: (fullName: string, email: string, password: string) => Promise<void>;
@@ -29,10 +30,19 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [isLoading, setIsLoading] = useState(true);
 
   // This effect runs on initial app load to check if a user session exists
+  // This effect runs on initial app load to check if a user session exists
   useEffect(() => {
+    // --- MODIFIED: We will now check the URL before trying to authenticate ---
+
+    // Define the paths that do not require an authentication check
+    const publicPaths = ['/login', '/invitation'];
+    
+    // Check if the current browser path starts with one of our defined public paths
+    const isPublicPath = publicPaths.some(path => window.location.pathname.startsWith(path));
+
     const checkUserStatus = async () => {
       try {
-        const response = await authFetch('/auth/me'); // Correctly uses authFetch
+        const response = await authFetch('/auth/me');
         if (response.ok) {
           const userData = await response.json();
           setUser(userData);
@@ -40,16 +50,24 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           setUser(null);
         }
       } catch (error) {
-        console.log('No active session found or server is down.');
+        console.log('No active session found.');
         setUser(null);
       } finally {
         setIsLoading(false);
       }
     };
 
-    checkUserStatus();
+    // --- THE FIX ---
+    // If the path is public, we don't need to check for a session.
+    // We can assume the user is not logged in and stop the loading process.
+    if (isPublicPath) {
+      setIsLoading(false);
+      setUser(null);
+    } else {
+      // Otherwise, proceed with the authentication check as normal.
+      checkUserStatus();
+    }
   }, []);
-
   const login = async (email: string, password: string) => {
     // CORRECTED: Use authFetch to ensure credentials are sent
     const response = await authFetch('/auth/login', {
@@ -95,6 +113,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     user,
     isAuthenticated: !!user,
     isLoading, // Changed from 'loading' to 'isLoading' to match previous version
+    setUser,
     login,
     logout,
     register,

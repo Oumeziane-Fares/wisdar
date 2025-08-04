@@ -1,5 +1,5 @@
 // frontend/wisdar_chat/src/types/index.ts
-
+import { LucideIcon } from "lucide-react";
 /**
  * AI Model Definition
  * 
@@ -39,13 +39,18 @@ export type MessageRole = 'user' | 'assistant' | 'system';
  * 
  * Tracks the current state of a message in the UI
  */
-export type MessageStatus = 
-  | 'complete'       // Message is fully processed
-  | 'thinking'       // AI is generating a response
-  | 'transcribing'   // Audio is being transcribed
-  | 'streaming'      // AI response is being streamed
-  | 'error';         // An error occurred processing the message
+export enum MessageStatus {
+  COMPLETE = 'complete',
+  THINKING = 'thinking',
+  EXTRACTING_AUDIO = 'extracting_audio', // <-- Add this
+  TRANSCRIBING = 'transcribing',
+  STREAMING = 'streaming',
+  ERROR = 'error',
+  FAILED = 'failed', // Added from your previous task file
+  UPLOADING = 'uploading',   // NEW: For when a file is being sent
+  WAITING = 'waiting'       // NEW: For after upload, before transcription starts
 
+}
 /**
  * Message Interface
  * 
@@ -58,6 +63,10 @@ export interface Message {
   timestamp: string;             // ISO 8601 timestamp of creation
   status?: MessageStatus;        // Current processing state
   
+  // --- ADD THIS NEW PROPERTY ---
+  uploadProgress?: number; // Optional progress for file uploads (0-100)
+  // -----------------------------
+
   // Optional attachment for media messages
   attachment?: Attachment; 
   
@@ -69,6 +78,12 @@ export interface Message {
     code: string;
     message: string;
   };
+  imageUrl?: string; // For generated images
+
+  // --- START: ADD THESE TWO LINES ---
+  job_status?: string | null;
+  job_metadata?: any;
+  // --- END: ADD THESE TWO LINES ---
 }
 
 /**
@@ -82,16 +97,24 @@ export interface Conversation {
   created_at: string;            // ISO 8601 creation timestamp
   messages: Message[];           // Messages in the conversation
   aiModelId: string;             // ID of the active AI model
-  
+    // --- ADD THIS NEW PROPERTY ---
+  providerId?: string;           // Optional ID of the AI provider (e.g., 'openai')
+  service_id?: string;     
+  // -----------------------------
   // UI state properties
   active?: boolean;              // Is this the active conversation?
   unreadCount?: number;          // Optional unread message count
   lastMessage?: string;          // Optional preview of last message
   lastMessageTime?: string;      // Optional timestamp of last message
-  
+  // --- ADD THIS NEW PROPERTY ---
+  is_pinned?: boolean;          // Is this conversation pinned to the top?
+  isAgentConversation?: boolean; 
+  // -----------------------------
   // Optional metadata
   tags?: string[];               // Optional conversation tags
   userId?: number;               // Optional user ID for multi-user systems
+  imageContextUrl?: string | null;
+  providerServiceId?: number; // Add this line
 }
 
 /**
@@ -103,9 +126,17 @@ export interface User {
   id: number; // Updated to 'number' as per your latest request
   full_name: string; // User's full name
   email: string; // User's email address
-  role: 'user' | 'admin'; // User's system role
+  role: 'user' | 'admin'| 'team_admin'; // User's system role
+  credits: number; // User's credit balance
   // AI models assigned to this user
   assigned_models: AiModel[];
+
+  // --- NEW: Add fields from our team implementation ---
+  parent_id?: number;
+  credit_limit?: number | null; // Can be a number or null for unlimited
+  is_active: boolean; 
+  tts_voice?: string | null;
+
   // Optional metadata
   avatar_url?: string; // Optional profile picture URL
   last_active?: string; // Optional last active timestamp
@@ -139,12 +170,12 @@ export type SseEvent =
       type: 'stream_end';
       message_id: string | number;
     }
-  | {
-      type: 'error';
+ | {
+      type: 'error' | 'task_failed'; // Combined for simplicity
       message_id: string | number;
       error: string;
+      message: string;
     };
-
 /**
  * API Response Structure
  * 
@@ -158,4 +189,50 @@ export interface ApiResponse<T> {
     message: string;
     details?: any;
   };
+}
+
+
+/**
+ * Defines a specific service offered by a provider (e.g., Chat, Image Gen).
+ */
+export interface AiService {
+  providerServiceId?: number; // --- MODIFIED: This is the unique numeric ID from the database ---
+  id: string; // e.g., 'chat', 'image-generation'
+  name: string; // User-friendly name like "Chat" or "Image Generation"
+  modelId: string; // The specific API model ID for this service (e.g., 'gpt-4o')
+  description: string; // A short description shown in the UI
+  Icon: LucideIcon; // The icon component to display for this service
+
+    // --- START: ADD THIS NEW PROPERTY ---
+  capabilities?: {
+    input_types?: string[];
+    aspect_ratios?: string[];
+    max_duration_seconds?: number;
+    [key: string]: any; // Allows for other future capabilities
+  };
+  // --- END: ADD THIS NEW PROPERTY ---
+}
+
+/**
+ * Defines the AI Provider (e.g., OpenAI, Google).
+ */
+export interface AiProvider {
+  id: string; // e.g., 'openai'
+  name: string; // e.g., "OpenAI"
+  icon?: React.ElementType; 
+  services: AiService[]; // A list of services this provider offers
+}
+
+/**
+ * AI Agent Definition
+ *
+ * Represents a specialized, pre-configured AI agent for a specific task.
+ */
+export interface Agent {
+  id: number;
+  name: string;
+  description: string;
+  system_prompt: string;
+  icon_name: string | null;
+  provider_service_id: number;
 }

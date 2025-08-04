@@ -1,15 +1,19 @@
-// frontend/wisdar_chat/src/main.tsx
+// src/main.tsx
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import './index.css'; //
-import App from './App.tsx'; //
+import { BrowserRouter } from 'react-router-dom'; // --- NEW: Import BrowserRouter
+import './index.css';
+import App from './App.tsx';
 import './i18n'; 
 import { AuthProvider } from './contexts/AuthContext';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <AuthProvider>
-      <App />
-    </AuthProvider>
+    {/* --- NEW: Wrap everything in BrowserRouter --- */}
+    <BrowserRouter>
+      <AuthProvider>
+        <App />
+      </AuthProvider>
+    </BrowserRouter>
   </StrictMode>,
 );

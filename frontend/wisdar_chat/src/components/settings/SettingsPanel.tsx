@@ -4,6 +4,12 @@ import { useTranslation } from 'react-i18next'; // Import useTranslation
 import { LucideArrowLeft, LucideMoon, LucideSun, LucideUser, LucideBell, LucideLock } from 'lucide-react';
 import { useTheme } from '../ui/ThemeProvider'; //
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"; // Add this
+// --- START: ADD THESE IMPORTS ---
+import { useAuth } from '../../contexts/AuthContext';
+import { authFetch } from '../../lib/api';
+import { toast } from 'sonner';
+import { Label } from "@/components/ui/label";
+
 
 interface SettingsPanelProps {
   onBack: () => void;
@@ -15,6 +21,32 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onBack }) => {
   const { t, i18n } = useTranslation(); // Add this
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
   const { theme, setTheme } = useTheme(); //
+
+    // --- START: ADD HOOKS & SAVE LOGIC ---
+  const { user, setUser } = useAuth();
+  const availableVoices = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'];
+  const handleVoiceChange = async (newVoice: string) => {
+    try {
+        const response = await authFetch('/auth/preferences', {
+            method: 'PUT',
+            body: JSON.stringify({ tts_voice: newVoice }),
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.message || 'Failed to save preference.');
+        }
+        
+        const updatedUser = await response.json();
+        setUser(updatedUser); // Update the user state globally
+        toast.success('Voice preference saved!');
+
+    } catch (error: any) {
+        toast.error('Could not save your preference.', {
+            description: error.message,
+        });
+    }
+  };
   // Add this function
   const changeLanguage = (lng: string) => {
     i18n.changeLanguage(lng);
@@ -113,6 +145,31 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onBack }) => {
                     <span>{t('darkMode')}</span> {/* Translated */}
                   </button>
                 </div>
+                {/* --- START: ADD THE TTS VOICE SELECTOR UI --- */}
+                <div className="pt-4">
+                    <Label htmlFor="tts-voice" className="block text-sm font-medium mb-1">
+                        Text-to-Speech Voice
+                    </Label>
+                    <Select
+                        value={user?.tts_voice || 'alloy'}
+                        onValueChange={handleVoiceChange}
+                    >
+                        <SelectTrigger id="tts-voice" className="w-full sm:w-1/2">
+                            <SelectValue placeholder="Select a voice" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {availableVoices.map(voice => (
+                                <SelectItem key={voice} value={voice} className="capitalize">
+                                    {voice}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    <p className="text-sm text-muted-foreground mt-2">
+                        Choose the voice for the AI's spoken responses.
+                    </p>
+                </div>
+              {/* --- END: ADD THE TTS VOICE SELECTOR UI --- */}
               </div>
               
               <div>

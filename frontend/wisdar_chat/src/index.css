@@ -90,3 +90,41 @@
     flex-direction: column;
     min-height: 100%;
 }
+
+
+@layer base {
+  /* Target the prose container inside our ChatMessage component */
+  .prose {
+    /* --- General Typography --- */
+    @apply text-foreground/90 leading-relaxed;
+  }
+
+  /* --- Link Styles --- */
+  .prose a {
+    @apply text-[#6B5CA5] font-semibold no-underline transition-colors hover:text-[#5d4f91] dark:hover:text-[#8d7cc4];
+  }
+
+  /* --- List Styles --- */
+  .prose ul > li::marker {
+    @apply text-muted-foreground;
+  }
+  .prose ol > li::marker {
+    @apply font-semibold text-muted-foreground;
+  }
+
+  /* --- Code Block Styles --- */
+
+  .prose code {
+    @apply text-foreground font-mono text-sm;
+  }
+  
+  /* Inline code snippets */
+  .prose code:not(pre > code) {
+    @apply bg-muted/50 dark:bg-muted/25 px-1.5 py-0.5 rounded;
+  }
+  
+  /* --- Blockquote Styles --- */
+  .prose blockquote {
+    @apply border-l-4 border-[#6B5CA5] pl-4 italic text-muted-foreground;
+  }
+}

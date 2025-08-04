@@ -1,0 +1,23 @@
+.player-wrapper {
+  /* Give the container an explicit size to guarantee it's visible. */
+  width: 480px;
+  height: 270px; /* This creates a 16:9 aspect ratio */
+  max-width: 100%; /* Keeps it responsive */
+
+  /* Keep the rest of the styling */
+  position: relative;
+  background-color: #000;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  margin: 4px 0;
+}
+
+/* This targets both the original ReactPlayer and our new native video tag */
+.react-player,
+.player-wrapper > video {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
