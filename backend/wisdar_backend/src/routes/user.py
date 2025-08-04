@@ -6,9 +6,12 @@ from flask_jwt_extended import (
     set_access_cookies, 
     unset_jwt_cookies,
     jwt_required,
+    create_refresh_token,
+    set_refresh_cookies,
     get_jwt_identity
 )
 from authlib.integrations.flask_client import OAuth
+from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadTimeSignature
 
 # This blueprint handles authentication and user management routes.
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
@@ -82,15 +85,39 @@ def login_user():
     user = User.query.filter_by(email=email).first()
 
     if user and user.check_password(password):
+        # --- REPLACE THE EXISTING LOGIC WITH THIS ---
+        # Create both an access and a refresh token
         access_token = create_access_token(identity=str(user.id))
-        
-        # Create response and set cookie
+        refresh_token = create_refresh_token(identity=str(user.id))
+
+        # Create response and set both cookies
         response = jsonify({"user": user.to_dict()})
         set_access_cookies(response, access_token)
-        
+        set_refresh_cookies(response, refresh_token)
+
         return response, 200
-    
+        # --- END OF REPLACEMENT ---
+
     return jsonify({"message": "Invalid credentials"}), 401
+
+@auth_bp.route('/refresh', methods=['POST'])
+@jwt_required(refresh=True) # This decorator requires a valid REFRESH token
+def refresh_token():
+    """
+    Refreshes an expired access token using a valid refresh token.
+    The new access token is set in an HTTP-only cookie.
+    """
+    # Get the user's identity from the refresh token in the cookie
+    identity = get_jwt_identity()
+    
+    # Create a new access token
+    new_access_token = create_access_token(identity=identity)
+    
+    # Create a response and set the new access cookie
+    response = jsonify(message="Access token refreshed")
+    set_access_cookies(response, new_access_token)
+    
+    return response, 200
 
 @auth_bp.route('/me', methods=['GET'])
 @jwt_required()
@@ -189,10 +216,13 @@ def oauth_callback(provider):
 # --- User Management Routes (for admin purposes) ---
 
 @auth_bp.route('/users', methods=['GET'])
-@jwt_required() # Protect this route
+@jwt_required()
 def get_users():
-    """Returns a list of all users."""
-    users = User.query.all()
+    """Returns a list of all top-level users (admins, team_admins, and regular users without a parent)."""
+    # --- START MODIFICATION ---
+    # Filter for users where parent_id is NULL.
+    users = User.query.filter(User.parent_id.is_(None)).order_by(User.id).all()
+    # --- END MODIFICATION ---
     return jsonify([user.to_dict() for user in users])
 
 @auth_bp.route('/users/<int:user_id>', methods=['GET'])
@@ -221,3 +251,82 @@ def delete_user(user_id):
     db.session.delete(user)
     db.session.commit()
     return '', 204
+
+@auth_bp.route('/complete_invitation', methods=['POST'])
+def complete_invitation():
+    """
+    Finalizes a user's account setup from an invitation link.
+    This is a public endpoint that verifies a token and sets the user's password.
+    """
+    data = request.get_json()
+    token = data.get('token')
+    password = data.get('password')
+
+    if not token or not password:
+        return jsonify({"message": "Token and password are required."}), 400
+
+    serializer = URLSafeTimedSerializer(current_app.config['SECRET_KEY'])
+    
+    try:
+        # Verify the token's signature and that it hasn't expired (max_age is in seconds)
+        email = serializer.loads(token, salt='email-invitation-salt', max_age=259200) # 72 hours
+    except SignatureExpired:
+        return jsonify({"message": "This invitation link has expired."}), 400
+    except BadTimeSignature:
+        return jsonify({"message": "This invitation link is invalid or has been tampered with."}), 400
+    except Exception:
+        return jsonify({"message": "Invalid invitation link."}), 400
+
+    user = User.query.filter_by(email=email).first()
+
+    # Security check: ensure user exists and is still in a pending state
+    if not user or user.is_active:
+        return jsonify({"message": "This invitation has already been used or is invalid."}), 400
+
+    # Activate the user and set their password
+    user.set_password(password)
+    user.is_active = True
+    db.session.commit()
+
+    # Log the new user in by setting their JWT cookies
+    access_token = create_access_token(identity=str(user.id))
+    refresh_token = create_refresh_token(identity=str(user.id))
+
+    response = jsonify({"user": user.to_dict(), "message": "Account activated successfully."})
+    set_access_cookies(response, access_token)
+    set_refresh_cookies(response, refresh_token)
+
+    return response, 200
+
+@auth_bp.route('/preferences', methods=['PUT'])
+@jwt_required()
+def update_user_preferences():
+    """
+    Updates preferences for the currently authenticated user.
+    """
+    # Get the ID of the logged-in user from the JWT token
+    user_id = get_jwt_identity()
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({"message": "User not found"}), 404
+
+    data = request.get_json()
+    
+    # A list of valid voices to prevent saving incorrect data
+    allowed_voices = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']
+    
+    # Check if 'tts_voice' was sent in the request
+    if 'tts_voice' in data:
+        selected_voice = data['tts_voice']
+        if selected_voice in allowed_voices:
+            # Update the user object
+            user.tts_voice = selected_voice
+        else:
+            # If the voice is not valid, return an error
+            return jsonify({"message": "Invalid voice selected."}), 400
+
+    # Save the changes to the database
+    db.session.commit()
+    
+    # Return the updated user data to the frontend
+    return jsonify(user.to_dict()), 200

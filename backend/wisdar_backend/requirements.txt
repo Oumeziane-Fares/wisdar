@@ -21,3 +21,6 @@ celery
 gevent #python -m celery -A celery_worker.celery worker -l info -P gevent windows / python -m celery -A src.celery_app.celery_app worker -l info macos linux 
 requests
 Authlib
+Flask-Migrate
+moviepy
+youtube-transcript-api

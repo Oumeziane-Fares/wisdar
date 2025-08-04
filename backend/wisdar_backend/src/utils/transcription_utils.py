@@ -1,12 +1,12 @@
 import os
-import openai
 from flask import current_app
 import json
 import requests
 # Import your AIModel to fetch the key from the database
-from src.models.ai_model import AIModel
+from src.models.provider import Provider
+from openai import OpenAI
 
-def start_speechmatics_job(file_path: str) -> str:
+def start_speechmatics_job(file_path: str, language: str = 'auto') -> str:
     """Start transcription job with Speechmatics API without a webhook."""
     # This function now fetches the API key itself for better encapsulation
     api_key = current_app.config.get('SPEECHMATICS_API_KEY')
@@ -22,7 +22,7 @@ def start_speechmatics_job(file_path: str) -> str:
     config = {
         "type": "transcription",
         "transcription_config": {
-            "language": "auto",
+            "language":language,
             "enable_entities": True
         }
     }
@@ -57,33 +57,42 @@ def start_speechmatics_job(file_path: str) -> str:
         raise
     finally:
         files['data_file'].close()
-def transcribe_audio_with_whisper(file_path: str) -> str:
+        
+# --- [MODIFIED] This function now uses the new Provider model ---
+def transcribe_audio_with_whisper(file_path: str, language: str = None) -> str:
     """
     Transcribes audio using Whisper, fetching the API key securely
-    from the AIModel database table.
+    from the 'openai' Provider record in the database.
     """
     try:
-        # Fetch the Whisper model configuration from your database
-        # The ID 'whisper-1' should match the 'id' in your ai_models table
-        whisper_model = AIModel.query.get('whisper-1')
+        # [NEW] Fetch the OpenAI provider from your database.
+        # The API key for Whisper is the OpenAI API key.
+        openai_provider = Provider.query.get('openai')
 
-        if not whisper_model:
-            current_app.logger.error("Whisper model with ID 'whisper-1' not found in the database.")
-            raise ValueError("Whisper model not configured in the database.")
+        if not openai_provider:
+            current_app.logger.error("OpenAI provider with ID 'openai' not found in the database.")
+            raise ValueError("OpenAI provider not configured in the database.")
 
-        # Use your existing secure method to get the decrypted API key
-        api_key = whisper_model.get_api_key()
-        openai.api_key = api_key
+        # [NEW] Use the secure method on the Provider object to get the decrypted API key.
+        api_key = openai_provider.get_api_key()
+        
+        if not api_key:
+            current_app.logger.error("API key for OpenAI provider is not set.")
+            raise ValueError("OpenAI API key is not configured.")
+
+        # The rest of the function remains the same, as it correctly uses the modern OpenAI SDK.
+        client = OpenAI(api_key=api_key)
         
         with open(file_path, "rb") as audio_file:
             current_app.logger.info(f"Starting transcription with Whisper for file: {file_path}")
             
-            transcript_response = openai.Audio.transcribe(
+            transcript_response = client.audio.transcriptions.create(
                 model="whisper-1",
-                file=audio_file
+                file=audio_file,
+                language=language
             )
         
-        transcript = transcript_response['text']
+        transcript = transcript_response.text
         current_app.logger.info(f"Successfully received transcript from Whisper for file: {file_path}")
         return transcript
 
